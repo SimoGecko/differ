@@ -1,0 +1,10 @@
+Differ
+argv[0]=Debug\Differ.exe
+argv[1]=input\file1.txt
+argv[2]=input\file2.txt
+f1.size=3560 f2.size=3564
+read files in 1.5648 ms
+diffed in 2226.87 ms
+html-ified in 0.2606 ms
+written in 0.2792 ms
+opened in 60.098 ms

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+body
+{
+    font-family: consolas;
+    background-color: #ffffff;
+}
+.add {
+    background-color: #08c988;
+}
+.addbg {
+    background-color: #b5efdc;
+}
+.rem {
+    background-color: #ff8079;
+}
+.rembg {
+    background-color: #ffc5c1;
+}
+.neut {
+    background-color: #eaeef0;
+}
+.clear
+{
+    background-color: #ffffff;
+}
+</style>
+</head>
+<body>
+
+<pre>
+// (c) Simone Guggiari 2022
+
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+
+////////// PURPOSE: Draws arrows on the map //////////
+
+namespace sxg.warvio
+{
+    public class ArrowDrawer : MonoBehaviour
+    {
+        // -------------------- VARIABLES --------------------
+
+        // public
+        const float headLength = 0.2f;
+        const float tailLength = 0.1f;
+        const float tailInv = 1f / tailLength;
+
+        public float headBack = 0.1f;
+
+
+        // private
+        const int initialArrows = 8;
+        bool showArrows;
+        <span class="add">readonly </span>List&lt;GameObject&gt; arrows = new<span class="rem"> List&lt;GameObject&gt;</span>();
+        <span class="add">readonly </span>List&lt;GameObject&gt; pieces = new<span class="rem"> List&lt;GameObject&gt;</span>();
+
+        // references
+        public Player player;
+        public Transform arrowsParent;
+        public GameObject arrowPrefab;
+
+
+
+        // -------------------- BASE METHODS --------------------
+
+        void Awake ()
+        {
+            CreateArrows(initialArrows);
+            DisableArrows();
+
+            player.OnIssuingStart  += OnIssuingStart;
+            player.OnIssuingEnd    += OnIssuingEnd;
+        }
+    	
+    	void Update ()
+        {
+            if (showArrows) ShowArrows();
+    	}
+
+        // -------------------- CUSTOM METHODS --------------------
+
+
+        // commands
+        void OnIssuingStart()
+        {
+            showArrows = true;
+        }
+        void OnIssuingEnd()
+        {
+            showArrows = false;
+            DisableArrows();
+        }
+
+        void CreateArrows(int upTo)
+        {
+            <span class="add">//</span>if (arrows == null) arrows = new List&lt;GameObject&gt;();
+<span class="add">            //if (pieces == null) pieces = new List&lt;GameObject&gt;();</span>
+<span class="add">
+</span>            int missing = upTo - arrows.Count;
+            for (int i = 0; i &lt; missing; i++)
+            {
+                GameObject newArrow = Instantiate(arrowPrefab, arrowsParent) as GameObject;
+                arrows.Add(newArrow);
+                newArrow.SetActive(false);
+                GameObject newPiece = newArrow.transform.GetChild(0).Find("arrow_tail").gameObject; // the arrow piece
+                pieces.Add(newPiece);
+            }
+        }
+
+        void ShowArrows()
+        {
+            Vector2[] startPoints = player.GetRegionStartPoints().ToArray();
+            Vector2 endPoint = player.GetEndPoint();
+
+            if (startPoints.Length &gt; arrows.Count)
+            {
+                CreateArrows(startPoints.Length);
+            }
+            for (int i = 0; i &lt; startPoints.Length; i++)
+            {
+                Vector2 modifiedEndpoint = endPoint - (endPoint - startPoints[i]).normalized * headBack;
+                DrawArrow(startPoints[i], modifiedEndpoint, arrows[i], pieces[i]);
+            }
+            for (int i = startPoints.Length; i &lt; arrows.Count; i++)
+            {
+                arrows[i].<span class="rem">gameObject.</span>SetActive(false);
+            }
+        }
+
+        // this is the main function
+        void DrawArrow(Vector2 from, Vector2 to, GameObject prefab, GameObject piece)
+        {
+            Vector2 delta = to - from;
+            float length = delta.magnitude;
+            float angle = Utility.AngleFromDirection(delta);
+            prefab.<span class="rem">gameObject.</span>SetActive(length &gt;= headLength);
+            prefab.transform.<span class="add">SetP</span><span class="rem">p</span>osition<span class="add">A</span><span class="rem"> = to;
+            prefab.tra</span>n<span class="add">dR</span><span class="rem">sf</span>o<span class="rem">rm.ro</span>tation<span class="add">(to,</span> <span class="rem">= </span>Quaternion.Euler(0f, 0f, angle)<span class="add">)</span>;
+            float tailLength = Mathf.Max((length - headLength) * tailInv, 0f);
+            piece.transform.localScale = new Vector3(1f, tailLength, 1f);
+        }
+
+        void DisableArrows()
+        {
+            foreach (GameObject arrow in arrows) arrow.SetActive(false);
+        }
+
+        // queries
+
+
+
+        // other
+
+    }
+}
+</pre>
+
+</body>
+</html>

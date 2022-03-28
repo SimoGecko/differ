@@ -1,0 +1,1 @@
+Debug\Differ.exe input\file1.txt input\file2.txt
