@@ -1,0 +1,41 @@
+body {
+    font-family: consolas;
+    background-color: #ffffff;
+    color: #2c363c;
+    font-size: 16 px;
+    border:  0px solid;
+    width: 100%;
+    display: inline-block;
+    padding: 0;
+    margin: 0;
+    position: relative;
+    vertical-align: top;
+}
+
+.ab, .rb, .nb {
+    width: 100%;
+    display: inline-block;
+}
+
+.ah {
+    background-color: #8ee0b6;
+}
+.ab {
+    background-color: #c8f0da;
+}
+.rh {
+    background-color: #ff957e;
+}
+.rb {
+    background-color: #ffcbbd;
+}
+.nb {
+    background-color: #eaeef0;
+}
+.ln {
+    color: #999999;
+}
+td {
+    border: 0px solid;
+    vertical-align: top;
+}

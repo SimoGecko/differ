@@ -13,18 +13,43 @@
 
 using namespace std;
 
-//const char* htmltemplate = R"(...)";
+#define VIEWMODE_SPLIT 1
+#define VIEWMODE_UNIFIED 2
+//#define DIFFMODE_CHARACTER 1
+//#define DIFFMODE_WORD 2
 
 // members
-int diffmode = 1; // 0 == word , 1 == character
-int viewmode = 1; // 0 == split, 1 == unified
+int viewmode = VIEWMODE_UNIFIED;
+//int diffmode = DIFFMODE_CHARACTER;
 bool ignorecase = false;
-bool ignorewhitespace = true;
-bool collapselines = true;
-bool tofile = false;
+bool ignorewhitespace = false;
+//bool collapselines = true;
+//bool tofile = false;
 
 const char* filepath1 = nullptr;
 const char* filepath2 = nullptr;
+
+// repurposing unused ascii characters for special meaning
+#define CHAR_ADD '\1' // start of heading
+#define CHAR_REM '\2' // start of text
+#define CHAR_END '\3' // end of text
+
+#define CHAR_ADDB '\4' // end of transmission
+#define CHAR_REMB '\5' // enquiry
+#define CHAR_ENDB '\6' // ack
+#define CHAR_NEUB '\14' // shift out
+
+
+
+//#define CHAR_ADD 'A' // start of heading
+//#define CHAR_REM 'R' // start of text
+//#define CHAR_END 'E' // end of text
+//
+//#define CHAR_ADDB 'a' // end of transmission
+//#define CHAR_REMB 'r' // enquiry
+//#define CHAR_ENDB 'e' // ack
+//#define CHAR_NEUB 'n' // shift out
+
 
 void readparams(int argc, char** argv)
 {
@@ -33,64 +58,50 @@ void readparams(int argc, char** argv)
 
 	for (int i = 3; i < argc; i++)
     {
-        if      (_strcmpi(argv[i], "tofile")        == 0) tofile       = true;
-        //else if (_strcmpi(argv[i], "value")        == 0 && (i + 1 < argc)) value        = std::stoi(argv[++i]);
+        //if      (_strcmpi(argv[i], "tofile")           == 0) tofile       = true;
+        if      (_strcmpi(argv[i], "unifiedview")      == 0) viewmode = VIEWMODE_UNIFIED;
+        else if (_strcmpi(argv[i], "splitview")        == 0) viewmode = VIEWMODE_SPLIT;
+        else if (_strcmpi(argv[i], "ignorewhitespace") == 0) ignorewhitespace = true;
+        else if (_strcmpi(argv[i], "ignorecase")       == 0) ignorecase = true;
     }
 }
 
 void readfile(const char* filepath, string& str)
 {
-    //std::ifstream t(filepath);
-    //std::stringstream buffer;
-    //buffer << t.rdbuf();
-    //buffer.str(str);
-
-    std::ifstream t(filepath);
-    str = std::string((std::istreambuf_iterator<char>(t)),
-        std::istreambuf_iterator<char>());
+    if (filepath != nullptr)
+    {
+        ifstream t(filepath);
+        str = string((istreambuf_iterator<char>(t)), istreambuf_iterator<char>());
+    }
 }
 
 void writefile(const char* filepath, const string& str)
 {
-    ofstream outfile;
-    outfile.open(filepath);
-    outfile << str;
-    outfile.close();
+    if (filepath != nullptr)
+    {
+        ofstream outfile;
+        outfile.open(filepath);
+        outfile << str;
+        outfile.close();
+    }
 }
-
-//char* readfile(char* filepath)
-//{
-//    FILE* f = fopen(filepath, "rb");
-//    fseek(f, 0, SEEK_END);
-//    long fsize = ftell(f);
-//    fseek(f, 0, SEEK_SET);  /* same as rewind(f); */
-//
-//    char* string = malloc(fsize + 1);
-//    fread(string, fsize, 1, f);
-//    fclose(f);
-//
-//    string[fsize] = 0;
-//    return string;
-//}
-
 
 int max3(int a, int b, int c) { return max(a, max(b, c)); }
 
-#define U 1 // up
-#define L 2 // left
-#define D 4 // diag
+#define UP 1
+#define LEFT 2
+#define DIAG 4
 
 void adddelimiters(stringstream& ss, int mode, int prevmode)
 {
-    if (mode == prevmode) return;
     if (mode != prevmode)
     {
         // close previous
-        if      (prevmode == L) ss << "{+";
-        else if (prevmode == U) ss << "{-";
+        if      (prevmode == LEFT) ss << CHAR_ADD;
+        else if (prevmode == UP  ) ss << CHAR_REM;
 
         // open new
-        if (mode == L || mode == U) ss << ".}";
+        if (mode == LEFT || mode == UP) ss << CHAR_END;
     }
 }
 
@@ -115,40 +126,35 @@ string lcs(const string& A, const string& B) // naive but optimal first implemen
     while (i > 0 && j > 0)
     {
         int prevmode = mode;
-		if (T[i][j]==T[i-1][j])
-        {
-            // move up
-            mode = U;
-            adddelimiters(ss, mode, prevmode);
-            ss << A[--i];
-        }
-        else if (T[i][j] == T[i][j-1])
-        {
-            // move left
-            mode = L;
-            adddelimiters(ss, mode, prevmode);
-            ss << B[--j];
-        }
+        bool cangoUp   = T[i][j] == T[i-1][j];
+        bool cangoLeft = T[i][j] == T[i][j-1];
+        bool cangoDiag = A[i-1]==B[j-1]; // T[i][j] == T[i-1][j-1]+1 &&
+
+        // prefer to keep doing what it was doing before (up or left)
+        if      (prevmode == UP   && cangoUp  ) mode = UP;
+        else if (prevmode == LEFT && cangoLeft) mode = LEFT;
+        else if (prevmode == DIAG && cangoDiag) mode = DIAG;
         else
         {
-            // move diagonally
-            //assert(A[i] == B[j]);
-            mode = D;
-            adddelimiters(ss, mode, prevmode);
-            ss << A[--i];
-            --j;
+            mode = cangoLeft ? LEFT : (cangoUp ? UP : DIAG);
+            //mode = cangoDiag ? DIAG : (cangoLeft ? LEFT : UP);
         }
+
+        adddelimiters(ss, mode, prevmode);
+		if      (mode == UP  )     ss << A[--i];
+        else if (mode == LEFT)     ss << B[--j];
+        else  /*(mode == DIAG)*/ { ss << A[--i]; --j; }
     }
     // do the final stretch
     if (i > 0)
     {
         while (i > 0) ss << A[--i];
-        ss << "{-";
+        ss << CHAR_REM;
     }
-    if (j > 0)
+    else if (j > 0)
     {
         while (j > 0) ss << B[--j];
-        ss << "{+";
+        ss << CHAR_ADD;
     }
 
     // reverse it
@@ -164,108 +170,197 @@ string diff(const string& s1, const string& s2)
     return lcs(s1, s2);
 }
 
+void replaceall(string& str, char from, const string& to)
+{
+    size_t start_pos = 0;
+    while ((start_pos = str.find(from, start_pos)) != string::npos)
+    {
+        str.replace(start_pos, 1, to);
+        start_pos += to.length(); // Handles case where 'to' is a substring of 'from'
+    }
+}
+
 void replaceall(string& str, const string& from, const string& to)
 {
     size_t start_pos = 0;
-    while ((start_pos = str.find(from, start_pos)) != std::string::npos)
+    while ((start_pos = str.find(from, start_pos)) != string::npos)
     {
         str.replace(start_pos, from.length(), to);
         start_pos += to.length(); // Handles case where 'to' is a substring of 'from'
     }
 }
 
+void replaceone(string& str, const string& from, const string& to)
+{
+    size_t start_pos = 0;
+    if ((start_pos = str.find(from, start_pos)) != string::npos)
+    {
+        str.replace(start_pos, from.length(), to);
+        start_pos += to.length(); // Handles case where 'to' is a substring of 'from'
+    }
+}
+
+void removeall(string& str, char from, char to)
+{
+    size_t start_pos = 0, end_pos = 0;
+    while ((start_pos = str.find(from, start_pos)) != string::npos)
+    {
+        if ((end_pos = str.find(to, start_pos)) != string::npos)
+        {
+            str.erase(start_pos, end_pos - start_pos+1);
+        }
+        else
+        {
+            return;
+        }
+    }
+}
+
+void converttags(string& s) // TODO: single pass
+{
+    replaceall(s, CHAR_ADD, "<span class=ah>"); // add highlight
+    replaceall(s, CHAR_REM, "<span class=rh>"); // rem highlight
+    replaceall(s, CHAR_END, "</span>");
+
+    replaceall(s, CHAR_ADDB, "<div class=ab>"); // add background
+    replaceall(s, CHAR_REMB, "<div class=rb>"); // rem background
+    replaceall(s, CHAR_NEUB, "<div class=nb>"); // neutral background
+    replaceall(s, CHAR_ENDB, "</div>");
+}
+
+bool contains(const string& str, char c)
+{
+    return (str.find(c, 0) != string::npos);
+}
+
 string convert2html(string& s)
 {
     //replace(s, "\n", "<br>");
     //replace(s, " ", "&nbsp;");
-    // html-ify
-    replaceall(s, "<", "&lt;");
-    replaceall(s, ">", "&gt;");
+    replaceall(s, '<', "&lt;");
+    replaceall(s, '>', "&gt;");
 
-    replaceall(s, "+{", "<span class=\"add\">");
-    replaceall(s, "-{", "<span class=\"rem\">");
-    replaceall(s, "}.", "</span>");
+    if (viewmode == VIEWMODE_SPLIT)
+    {
+        // these add the infamous grey empty lines (not sure why)
+        replaceall(s, "\1\n", "\n\1");
+        replaceall(s, "\2\n", "\n\2");
+        replaceall(s, "\n\3", "\3\n");
+
+        string sl = s;
+        string sr = s;
+
+        replaceall(sl, CHAR_ADD, "\14 \6\1");
+        replaceall(sr, CHAR_REM, "\14 \6\2");
+        removeall(sl, CHAR_ADD, CHAR_END);
+        removeall(sr, CHAR_REM, CHAR_END);
+
+        // iterate over lines, add backgrounds, create lines
+        converttags(sl);
+        converttags(sr);
 
 
-    // add html
-    string html;// (htmltemplate);
-    readfile("x:/Vs/Differ/template.html", html);
-    replaceall(html, "__CODE__", s);
-    return html;
+
+        string html;
+        readfile("x:/Vs/Differ/template_split.html", html);
+        replaceone(html, "__CODE_R__", sr); // in reverse order for speed
+        replaceone(html, "__CODE_L__", sl);
+        replaceone(html, "__LINE_R__", "_");
+        replaceone(html, "__LINE_L__", "_");
+        return html;
+    }
+    else if (viewmode == VIEWMODE_UNIFIED)
+    {
+        replaceall(s, "\1\n", "\n\1");
+        replaceall(s, "\2\n", "\n\2");
+        replaceall(s, "\n\3", "\3\n");
+        
+        
+        std::stringstream ssi(s);
+        std::string line;
+
+        stringstream sso;
+        while (std::getline(ssi, line, '\n'))
+        {
+            if (contains(line, CHAR_END))
+            {
+                sso << CHAR_NEUB << line << CHAR_ENDB << "\n";
+            }
+            else
+            {
+                sso << line << "\n";
+            }
+        }
+        s = sso.str(); // output
+
+        converttags(s);
+
+        string html;
+        readfile("x:/Vs/Differ/template_unified.html", html);
+        replaceone(html, "__CODE__", s); // in reverse order for speed
+        replaceone(html, "__LINE_R__", "_");
+        replaceone(html, "__LINE_L__", "_");
+        return html;
+    }
 }
 
 
 #define TIMER_START \
-    chrono::duration<double, std::milli> float_ms; \
+    chrono::duration<double, milli> float_ms; \
     auto starttime = chrono::high_resolution_clock::now(); \
     auto endtime   = chrono::high_resolution_clock::now();
 
 #define TIMER_END(msg) \
     endtime = chrono::high_resolution_clock::now(); \
     float_ms = endtime - starttime; \
-    out << msg << " in " << float_ms.count() << " ms" << std::endl; \
+    out << msg << " in " << float_ms.count() << " ms" << endl; \
     starttime = endtime;
-
-
-//void runandtime(const char* title, void* func)
-//{
-//
-//    // do work
-//
-//}
 
 
 ostream& getout()
 {
-    if (tofile)
-    {
-        ofstream outfile;
-        outfile.open("differ_output.txt");
-        return outfile;
-    }
+    //if (tofile)
+    //{
+    //    ofstream outfile;
+    //    outfile.open("differ_output.txt");
+    //    return outfile;
+    //}
     return cout;
 }
 
 int main(int argc, char** argv)
 {
-    // need at least 3 args
+    ostream& out = cout;// = outfile;
+	out << "Differ - (c) 2022 Simone Guggiari" << endl << endl;
+
     if (argc < 3)
     {
-        cout << "too few parameters. Usage: differ.exe file1.txt file2.txt [options]";
+        cout << "Too few parameters. Usage: differ.exe file1.txt file2.txt [options]";
         return 1;
     }
 
     readparams(argc, argv);
-
-    //ofstream outfile;
-    //outfile.open("differ_output.txt");
-
-    ostream& out = cout;// = outfile;
-
-	out << "Differ" << endl;
-
-    for (int i = 0; i < argc; ++i)
-    {
-        out << "argv[" << i << "]=" << argv[i] << "\n";
-    }
+    //for (int i = 0; i < argc; ++i)
+    //{
+    //    out << "argv[" << i << "]=" << argv[i] << "\n";
+    //}
     
-    // read the files
     if (filepath1 == nullptr || filepath2 == nullptr)
     {
         return 1;
     }
-    string file1, file2;
 
     TIMER_START;
 
+    // read the files
+    string file1, file2;
     readfile(filepath1, file1);
     readfile(filepath2, file2);
     out << "f1.size=" << file1.size() << " f2.size=" << file2.size() << endl;
     TIMER_END("read");
 
-
-    writefile("differ_file1.txt", file1);
-    writefile("differ_file2.txt", file2);
+    writefile("output/differ_file1.txt", file1);
+    writefile("output/differ_file2.txt", file2);
 
     // run the diff
     string diffresult = diff(file1, file2);
@@ -276,15 +371,14 @@ int main(int argc, char** argv)
     TIMER_END("html");
 
     // generate the html file
-    writefile("diffres.html", diffresulthtml);
+    const char* outputfile = "x:/Vs/Differ/diffres.html";
+    writefile(outputfile, diffresulthtml);
     TIMER_END("writ");
 
     // open it
-    ShellExecute(NULL, L"open", L"diffres.html", NULL, NULL, SW_SHOWNORMAL);
+    ShellExecuteA(NULL, "open", outputfile, NULL, NULL, SW_SHOWNORMAL);
     TIMER_END("open");
-    //LPCTSTR helpFile = "c\help\helpFile.html";
 
-    //int z; cin >> z;
     //system("PAUSE");
 	return 0;
 }
