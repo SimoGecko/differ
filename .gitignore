@@ -354,4 +354,9 @@ MigrationBackup/
 
 input/
 output/
-test.html
+refs/
+data/
+
+diffres.html
+sample*.html
+test*.html

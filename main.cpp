@@ -270,7 +270,9 @@ bool contains(const string& str, char c)
 string convert2html_lcs(string& s)
 {
     //replace(s, "\n", "<br>");
-    //replace(s, " ", "&nbsp;");
+    //replace(s, "    ", "&emsp;");
+    //replace(s, "  ", "&ensp;");
+    //replace(s, " ", "&nbsp;"); // only leading ones
     replaceall(s, '<', "&lt;");
     replaceall(s, '>', "&gt;");
 
@@ -297,10 +299,10 @@ string convert2html_lcs(string& s)
 
         string html;
         readfile("x:/Vs/Differ/template_split.html", html);
-        replaceone(html, "__CODE_R__", sr); // in reverse order for speed
-        replaceone(html, "__CODE_L__", sl);
-        replaceone(html, "__LINE_R__", "_");
+        replaceone(html, "__LINE_R__", "_"); // in reverse order for speed
         replaceone(html, "__LINE_L__", "_");
+        replaceone(html, "__CODE_R__", sr);
+        replaceone(html, "__CODE_L__", sl);
         return html;
     }
     else if (viewmode == VIEWMODE_UNIFIED)
@@ -331,9 +333,9 @@ string convert2html_lcs(string& s)
 
         string html;
         readfile("x:/Vs/Differ/template_unified.html", html);
-        replaceone(html, "__CODE__", s); // in reverse order for speed
-        replaceone(html, "__LINE_R__", "_");
+        replaceone(html, "__LINE_R__", "_"); // in reverse order for speed
         replaceone(html, "__LINE_L__", "_");
+        replaceone(html, "__CODE__", s);
         return html;
     }
 
@@ -351,10 +353,10 @@ string convert2html_patience(string& sl, string& sr, string& ll, string& lr)
 
     string html;
     readfile("x:/Vs/Differ/template_split.html", html);
-    replaceone(html, "__CODE_R__", sr); // in reverse order for speed
-    replaceone(html, "__CODE_L__", sl);
-    replaceone(html, "__LINE_R__", lr);
+    replaceone(html, "__LINE_R__", lr); // in reverse order for speed
     replaceone(html, "__LINE_L__", ll);
+    replaceone(html, "__CODE_R__", sr);
+    replaceone(html, "__CODE_L__", sl);
     return html;
 }
 

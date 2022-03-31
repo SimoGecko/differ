@@ -1,10 +1,10 @@
 body {
-    font-family: consolas;
     background-color: #ffffff;
-    color: #2c363c;
+    font-family: consolas;
     font-size: 16 px;
+    color: #2c363c;
     border:  0px solid;
-    width: 100%;
+    /*width: 100%; (default)*/
     display: inline-block;
     padding: 0;
     margin: 0;
@@ -12,10 +12,7 @@ body {
     vertical-align: top;
 }
 
-.ab, .rb, .nb {
-    width: 100%;
-    display: inline-block;
-}
+
 
 .ah {
     background-color: #8ee0b6;
@@ -35,7 +32,30 @@ body {
 .ln {
     color: #999999;
 }
+
+.cd{
+    overflow-x:auto;
+    max-width: 100%;
+}
+
+table {
+    table-layout: fixed; /*this is it*/
+    width: 100%;
+}
+
 td {
+    overflow-y: auto;
+    overflow-x: hidden;
+
+    border: 0px solid;
+    vertical-align: top;
+    /*table-layout:fixed;*/
+    /*max-width: 50%;
+    /*overflow: hidden;*/
+    white-space: nowrap;
+
+}
+tr {
     border: 0px solid;
     vertical-align: top;
 }
