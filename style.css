@@ -13,20 +13,19 @@ body {
 }
 
 
-
-.ah {
+.ah { /* addition highlight */
     background-color: #8ee0b6;
 }
-.ab {
+.ab { /* addition background */
     background-color: #c8f0da;
 }
-.rh {
+.rh { /* removal highlight */
     background-color: #ff957e;
 }
-.rb {
+.rb { /* removal background */
     background-color: #ffcbbd;
 }
-.nb {
+.nb { /* neutral background */
     background-color: #eaeef0;
 }
 .ln {

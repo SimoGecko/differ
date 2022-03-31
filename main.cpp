@@ -32,8 +32,8 @@ int viewmode = VIEWMODE_UNIFIED;
 int diffmethod = DIFFMETHOD_LCS;
 bool ignorecase = false;
 bool ignorewhitespace = false;
-//bool collapselines = true;
-//int collapselinesneighborhood = 3;
+bool collapselines = false;
+int contextsize = 3;
 
 const char* filepath1 = nullptr;
 const char* filepath2 = nullptr;
@@ -65,6 +65,12 @@ void readparams(int argc, char** argv)
         else if (_strcmpi(argv[i], "ignorecase")       == 0) ignorecase = true;
         else if (_strcmpi(argv[i], "lcs")              == 0) diffmethod = DIFFMETHOD_LCS;
         else if (_strcmpi(argv[i], "patience")         == 0) diffmethod = DIFFMETHOD_PATIENCE;
+        else if (_strcmpi(argv[i], "collapselines")    == 0) collapselines = true;
+        else if (_strcmpi(argv[i], "expandelines")     == 0) collapselines = false;
+        else if (_strcmpi(argv[i], "contextsize")      == 0 && (i + 1 < argc))
+        {
+            contextsize = std::stoi(argv[++i]);
+        }
     }
 }
 
@@ -98,8 +104,6 @@ void writefile(const char* filepath, const string& str)
     }
 }
 
-int max3(int a, int b, int c) { return max(a, max(b, c)); }
-
 #define NONE 0
 #define UP 1
 #define LEFT 2
@@ -115,7 +119,7 @@ string LCS(const string& A, const string& B) // naive but optimal first implemen
         for (int j = 1; j <= J; ++j)
         {
             int d = (A[i-1] == B[j-1]) ? 1 : 0;
-            T[i][j] = max3(T[i-1][j], T[i][j-1], T[i-1][j-1] + d);
+            T[i][j] = max(max(T[i-1][j], T[i][j-1]), T[i-1][j-1] + d);
         }
     }
     // build-back
@@ -255,6 +259,16 @@ void removeallexcept(string& str, char from, char to, char ex) // faux
     }
 }
 
+void htmlifly(string& s) // TODO: single pass
+{
+    replaceall(s, '<', "&lt;");
+    replaceall(s, '>', "&gt;");
+    //replace(s, '\n', "<br>");
+    //replace(s, "    ", "&emsp;");
+    //replace(s, "  ", "&ensp;");
+    //replace(s, " ", "&nbsp;"); // only leading ones
+}
+
 void converttags(string& s) // TODO: single pass
 {
     replaceall(s, CHAR_ADD, "<span class=ah>"); // add highlight
@@ -274,12 +288,7 @@ bool contains(const string& str, char c)
 
 string convert2html_lcs(string& s)
 {
-    //replace(s, "\n", "<br>");
-    //replace(s, "    ", "&emsp;");
-    //replace(s, "  ", "&ensp;");
-    //replace(s, " ", "&nbsp;"); // only leading ones
-    replaceall(s, '<', "&lt;");
-    replaceall(s, '>', "&gt;");
+    htmlifly(s);
 
     if (viewmode == VIEWMODE_SPLIT)
     {
@@ -347,22 +356,118 @@ string convert2html_lcs(string& s)
     return "";
 }
 
-string convert2html_patience(string& sl, string& sr, string& ll, string& lr)
+struct diffline
 {
-    replaceall(sl, '<', "&lt;");
-    replaceall(sl, '>', "&gt;");
-    replaceall(sr, '<', "&lt;");
-    replaceall(sr, '>', "&gt;");
-    converttags(sl);
-    converttags(sr);
+    enum class type { same, rem, add, diff };
 
-    string html;
-    readfile("x:/Vs/Differ/template_split.html", html);
-    replaceone(html, "__LINE_R__", lr); // in reverse order for speed
-    replaceone(html, "__LINE_L__", ll);
-    replaceone(html, "__CODE_R__", sr);
-    replaceone(html, "__CODE_L__", sl);
-    return html;
+    type t;
+    int liL, liR;
+    string value, valueL, valueR;
+    int numRem, numAdd;
+    int dist;
+
+    static diffline same(int liL, int liR, string value)
+    {
+        return diffline(type::same, liL, liR, value, "", "", 0, 0, INT_MAX);
+    }
+    static diffline rem(int liL, string value)
+    {
+        return diffline(type::rem, liL, -1, value, "", "", 1, 0, INT_MAX);
+    }
+    static diffline add(int liR, string value)
+    {
+        return diffline(type::add, -1, liR, value, "", "", 0, 1, INT_MAX);
+    }
+    static diffline diff(int liL, int liR, string value, string valueL, string valueR, int numRem,
+        int numAdd)
+    {
+        return diffline(type::diff, liL, liR, value, valueL, valueR, numRem, numAdd, INT_MAX);
+    }
+    diffline(type _t, int _liL, int _liR, string _value, string _valueL, string _valueR,
+        int _numRem, int _numAdd, int _dist)
+        : t(_t), liL(_liL), liR(_liR), value(_value), valueL(_valueL), valueR(_valueR)
+        , numRem(_numRem), numAdd(_numAdd), dist(_dist)
+    {
+    }
+};
+
+
+string convert2html_patience(const vector<diffline>& D)
+{
+    // add here all the things
+
+
+    if (viewmode == VIEWMODE_SPLIT)
+    {
+        stringstream ssl, ssr, sll, slr;
+        bool skipped = true;
+        for (const diffline& d : D)
+        {
+            switch (d.t)
+            {
+            case diffline::type::same:
+            {
+                if (collapselines && d.dist > contextsize) // skip
+                {
+                    if (!skipped)
+                    {
+                        skipped = true;
+                        // add border
+                        string spacing(5, '\n');
+                        ssl << spacing;
+                        ssr << spacing;
+                        sll << spacing;
+                        slr << spacing;
+                    }
+                    continue;
+                }
+                skipped = false;
+                ssl << d.value << '\n';
+                ssr << d.value << '\n';
+            }
+            break;
+            case diffline::type::rem: // TODO: add delimeters only if different from previous
+            {
+                ssl << CHAR_REMB << d.value << '\n' << CHAR_ENDB;
+                ssr << CHAR_NEUB << '\n' << CHAR_ENDB;
+            }
+            break;
+            case diffline::type::add:
+            {
+                ssl << CHAR_NEUB << '\n' << CHAR_ENDB;
+                ssr << CHAR_ADDB << d.value << '\n' << CHAR_ENDB;
+            }
+            break;
+            case diffline::type::diff:
+            {
+                ssl << CHAR_REMB << d.valueL << '\n' << CHAR_ENDB;
+                ssr << CHAR_ADDB << d.valueR << '\n' << CHAR_ENDB;
+            }
+            break;
+            }
+            if (d.liL > -1) sll << d.liL + 1; sll << '\n';
+            if (d.liR > -1) slr << d.liR + 1; slr << '\n';
+        }
+
+        string sl = ssl.str();
+        string sr = ssr.str();
+        string ll = sll.str();
+        string lr = slr.str();
+
+        htmlifly(sl);
+        htmlifly(sr);
+        converttags(sl);
+        converttags(sr);
+
+        string html;
+        readfile("x:/Vs/Differ/template_split.html", html);
+        replaceone(html, "__LINE_R__", lr); // in reverse order for speed
+        replaceone(html, "__LINE_L__", ll);
+        replaceone(html, "__CODE_R__", sr);
+        replaceone(html, "__CODE_L__", sl);
+        return html;
+    }
+    return "";
 }
 
 uint computehash(const string& s)
@@ -608,19 +713,37 @@ void findallcorrespondences(vector<linedata>& A, vector<linedata>& B)
     }
 }
 
-void patience(const vector<linedata>& A, const vector<linedata>& B, string& stra, string& strb, string& strla, string& strlb)
+
+void splitstring(const string& s, vector<string>& a, char delimiter)
 {
-    stringstream ssa, ssb, lsa, lsb;
+    size_t last = 0;
+    size_t next = 0;
+    while ((next = s.find(delimiter, last)) != string::npos)
+    {
+        a.push_back(s.substr(last, next - last));
+        last = next + 1;
+    }
+    a.push_back(s.substr(last));
+}
+
+void patience(vector<diffline>& D, const vector<linedata>& A, const vector<linedata>& B)
+{
+    // iterate over the lines
+    //   if they have correspondences -> add them to the result
+    //   if not -> run LCS on them
+    
+    //stringstream ssa, ssb, lsa, lsb;
 
     int ia = 0, ib = 0;
     while (ia < A.size() && ib < B.size())
     {
         if (A[ia].cli == ib /*&& B[ib].cli == ia*/) // correspondence
         {
-            ssa << A[ia].value << '\n';
-            ssb << B[ib].value << '\n';
-            lsa << ia+1 << '\n';
-            lsb << ib+1 << '\n';
+            D.push_back(diffline::same(ia, ib, A[ia].value));
+            //ssa << A[ia].value << '\n';
+            //ssb << B[ib].value << '\n';
+            //lsa << ia+1 << '\n';
+            //lsb << ib+1 << '\n';
             ++ia; ++ib;
         }
         else // some diff
@@ -631,29 +754,31 @@ void patience(const vector<linedata>& A, const vector<linedata>& B, string& stra
             {
                 int sa = ia, ea = B[ib].cli;
 
-                ssa << CHAR_REMB;
+                //ssa << CHAR_REMB;
                 for (; ia < ea; ++ia)
                 {
-                    ssa << A[ia].value << '\n';
-                    lsa << ia+1 << '\n';
+                    D.push_back(diffline::rem(ia, A[ia].value));
+                    //ssa << A[ia].value << '\n';
+                    //lsa << ia+1 << '\n';
                 }
-                ssa << CHAR_ENDB;
-                ssb << CHAR_NEUB << string(ea - sa, '\n') << CHAR_ENDB;
-                lsb << string(ea - sa, '\n');
+                //ssa << CHAR_ENDB;
+                //ssb << CHAR_NEUB << string(ea - sa, '\n') << CHAR_ENDB;
+                //lsb << string(ea - sa, '\n');
             }
             else if (A[ia].cli != -1) // one-sided ADD
             {
                 int sb = ib, eb = A[ia].cli;
 
-                ssb << CHAR_ADDB;
+                //ssb << CHAR_ADDB;
                 for (; ib < eb; ++ib)
                 {
-                    ssb << B[ib].value << '\n';
-                    lsb << ib+1 << '\n';
+                    D.push_back(diffline::add(ib, B[ib].value));
+                    //ssb << B[ib].value << '\n';
+                    //lsb << ib+1 << '\n';
                 }
-                ssb << CHAR_ENDB;
-                ssa << CHAR_NEUB << string(eb - sb, '\n') << CHAR_ENDB;
-                lsa << string(eb - sb, '\n');
+                //ssb << CHAR_ENDB;
+                //ssa << CHAR_NEUB << string(eb - sb, '\n') << CHAR_ENDB;
+                //lsa << string(eb - sb, '\n');
             }
             else // MIX
             {
@@ -678,6 +803,31 @@ void patience(const vector<linedata>& A, const vector<linedata>& B, string& stra
 
                 removeall(diffl, CHAR_ADD, CHAR_END);
                 removeall(diffr, CHAR_REM, CHAR_END);
+
+                // naive first implementation: split and put all at the beginning
+                int da = ea - sa, db = eb - sb; // delta (number of lines)
+                vector<string> va, vb;
+                splitstring(diffl, va, '\n');
+                splitstring(diffr, vb, '\n');
+                int i = 0;
+                for (; i < min(da, db); i++)
+                {
+                    int numRem = -1, numAdd = -1; // TODO
+                    D.push_back(diffline::diff(sa+i, sb+i, "", va[i], vb[i], numRem, numAdd));
+                }
+                while (i < da) // more rem
+                {
+                    D.push_back(diffline::diff(sa + i, -1, "", va[i], "", 1, 0));
+                    ++i;
+                }
+                while (i < db)
+                {
+                    D.push_back(diffline::diff(-1, sb+i, "", "", vb[i], 0, 1));
+                    ++i;
+                }
+
+
+                /*
                 ssa << CHAR_REMB << diffl << CHAR_ENDB;
                 ssb << CHAR_ADDB << diffr << CHAR_ENDB;
                 int da = ea - sa, db = eb - sb; // delta (number of lines)
@@ -694,9 +844,11 @@ void patience(const vector<linedata>& A, const vector<linedata>& B, string& stra
                     ssb << CHAR_NEUB << string(-d, '\n') << CHAR_ENDB;
                     lsb << string(-d, '\n');
                 }
+                */
 
                 /*
-                removeallexcept(diffl, CHAR_ADD, CHAR_END, '\n'); // adds faux modifiers to notify it's a fake line
+                // adds faux modifiers to notify it's a fake line
+                removeallexcept(diffl, CHAR_ADD, CHAR_END, '\n')
                 removeallexcept(diffr, CHAR_REM, CHAR_END, '\n');
 
                 int da = ea - sa, db = eb - sb; // delta (number of lines)
@@ -746,40 +898,45 @@ void patience(const vector<linedata>& A, const vector<linedata>& B, string& stra
 
     }
 
+    // compute distance in double pass
+    int dist = INT_MAX;
 
-    stra = ssa.str();
-    strb = ssb.str();
-    strla = lsa.str();
-    strlb = lsb.str();
+    auto assigndist = [&D, &dist](int i)
+    {
+        if (D[i].t != diffline::type::same) dist = 0;
+        else if (dist < INT_MAX) ++dist;
+        D[i].dist = min(D[i].dist, dist);
+    };
+
+    dist = INT_MAX;
+    for (int i = 0; i < D.size();  ++i) assigndist(i);
+    dist = INT_MAX;
+    for (int i = D.size() - 1; i >= 0; --i) assigndist(i);
+
+    //stra = ssa.str();
+    //strb = ssb.str();
+    //strla = lsa.str();
+    //strlb = lsb.str();
 }
 
-#define TIMER_START \
-    chrono::duration<double, milli> float_ms; \
-    auto starttime = chrono::high_resolution_clock::now(); \
-    auto endtime   = chrono::high_resolution_clock::now();
+auto starttime = chrono::high_resolution_clock::now();
 
-#define TIMER_END(msg) \
-    endtime = chrono::high_resolution_clock::now(); \
-    float_ms = endtime - starttime; \
-    out << msg << " in " << float_ms.count() << " ms" << endl; \
-    starttime = endtime;
-
-
-ostream& getout()
+void TIMER_START()
 {
-    //if (tofile)
-    //{
-    //    ofstream outfile;
-    //    outfile.open("differ_output.txt");
-    //    return outfile;
-    //}
-    return cout;
+    starttime = chrono::high_resolution_clock::now();
+}
+
+void TIMER_END(const string& msg)
+{
+    auto endtime = chrono::high_resolution_clock::now();
+    chrono::duration<double, milli>float_ms = endtime - starttime;
+    cout << msg << " in " << float_ms.count() << " ms" << endl;
+    starttime = endtime;
 }
 
 int main(int argc, char** argv)
 {
-    ostream& out = cout;// = outfile;
-	out << "Differ - (c) 2022 Simone Guggiari" << endl << endl;
+	cout << "Differ - (c) 2022 Simone Guggiari" << endl << endl;
 
     if (argc < 3)
     {
@@ -792,17 +949,14 @@ int main(int argc, char** argv)
     //vector<int> ans = LIS(cards); // LIS(cards) = 4 6 7 10 11 13
 
     readparams(argc, argv);
-    //for (int i = 0; i < argc; ++i)
-    //{
-    //    out << "argv[" << i << "]=" << argv[i] << "\n";
-    //}
+    //for (int i = 0; i < argc; ++i) cout << "argv[" << i << "]=" << argv[i] << "\n";
     
-    if (filepath1 == nullptr || filepath2 == nullptr)
+    if (filepath1 == nullptr || filepath2 == nullptr) // TODO: Check the files exist
     {
         return 1;
     }
 
-    TIMER_START;
+    TIMER_START();
 
     string resulthtml;
 
@@ -817,21 +971,14 @@ int main(int argc, char** argv)
 
     if (diffmethod == DIFFMETHOD_LCS)
     {
-        // read the files
         string file1, file2;
         readfile(filepath1, file1);
         readfile(filepath2, file2);
         TIMER_END("read");
-        
-        //out << "f1.size=" << file1.size() << " f2.size=" << file2.size() << endl;
-        //writefile("output/differ_file1.txt", file1);
-        //writefile("output/differ_file2.txt", file2);
 
-        // run the diff
         string diffresult = LCS(file1, file2);
         TIMER_END("diff");
 
-        // convert to html
         string resulthtml = convert2html_lcs(diffresult);
         TIMER_END("html");
     }
@@ -846,27 +993,21 @@ int main(int argc, char** argv)
         hashlinedata(B);
         TIMER_END("hash");
 
-        // find correspondences
         findallcorrespondences(A, B);
         TIMER_END("corr");
 
-        string sa, sb, la, lb;
-        patience(A, B, sa, sb, la, lb);
-        // iterate over the lines
-        //   if they have correspondences -> add them to the result
-        //   if not -> run LCS on them
+        vector<diffline> D;
+        patience(D, A, B);
         TIMER_END("pati");
 
-        resulthtml = convert2html_patience(sa, sb, la, lb);
+        resulthtml = convert2html_patience(D);
         TIMER_END("html");
     }
 
-    // write the html file
     const char* outputfile = "x:/Vs/Differ/diffres.html";
     writefile(outputfile, resulthtml);
     TIMER_END("writ");
 
-    // open it
     ShellExecuteA(NULL, "open", outputfile, NULL, NULL, SW_SHOWNORMAL);
     TIMER_END("open");
 
