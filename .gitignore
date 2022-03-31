@@ -357,6 +357,6 @@ output/
 refs/
 data/
 
-diffres.html
+diffres*.html
 sample*.html
 test*.html

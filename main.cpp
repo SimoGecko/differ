@@ -226,7 +226,7 @@ void removeall(string& str, char from, char to)
     }
 }
 
-void removeallexcept(string& str, char from, char to, char ex)
+void removeallexcept(string& str, char from, char to, char ex) // faux
 {
     size_t start_pos = 0, end_pos = 0;
     while ((start_pos = str.find(from, start_pos)) != string::npos)
@@ -240,8 +240,13 @@ void removeallexcept(string& str, char from, char to, char ex)
                 if (str[i] == ex) ++count;
             }
             str.erase(start_pos, end_pos - start_pos + 1);
-            str.insert(start_pos, count, ex);
-            start_pos += count;
+            //str.insert(start_pos, count, ex);
+            //start_pos += count;
+            for (int i = 0; i < count; i++)
+            {
+                str.insert(start_pos++, 1, ex);
+                str.insert(start_pos++, 1, 'F'); // faux
+            }
         }
         else
         {
@@ -418,6 +423,11 @@ void readlinedata(vector<linedata>& ans, const char* filepath) // TODO: this mis
         //unsigned int hash = gethash(line);
         ans.emplace_back(/*ln,*/ line, /*hash*/ 0u, -1);
         //++ln;
+        //if (file.eof()) break;
+    }
+    if (file.eof() && file.fail())
+    {
+        ans.emplace_back("", 0u, -1); // last empty line
     }
 }
 
@@ -649,8 +659,6 @@ void patience(const vector<linedata>& A, const vector<linedata>& B, string& stra
             {
                 // TODO: appropriate background
                 stringstream diffa, diffb;
-                //int sa = ia, ea = ia + 1;
-                //int sb = ib, eb = ib + 1;
                 int sa = ia, sb = ib;
                 while (ia < A.size() && A[ia].cli == -1)
                 {
@@ -666,23 +674,78 @@ void patience(const vector<linedata>& A, const vector<linedata>& B, string& stra
 
                 // run LCS
                 string diffl = LCS(diffa.str(), diffb.str()); // the lcs contains \n for both lines
-
                 string diffr = diffl;
 
-                removeallexcept(diffl, CHAR_ADD, CHAR_END, '\n');
-                removeallexcept(diffr, CHAR_REM, CHAR_END, '\n');
-
-
+                removeall(diffl, CHAR_ADD, CHAR_END);
+                removeall(diffr, CHAR_REM, CHAR_END);
                 ssa << CHAR_REMB << diffl << CHAR_ENDB;
                 ssb << CHAR_ADDB << diffr << CHAR_ENDB;
-                int nl = max(ea - sa, eb - sb);
-                lsa << string(nl, '\n');
-                lsb << string(nl, '\n');
+                int da = ea - sa, db = eb - sb; // delta (number of lines)
+                for (int i = sa; i < ea; ++i) lsa << i + 1 << '\n';
+                for (int i = sb; i < eb; ++i) lsb << i + 1 << '\n';
+                int d = db-da;
+                if (d > 0)
+                {
+                    ssa << CHAR_NEUB << string(d, '\n') << CHAR_ENDB;
+                    lsa << string(d, '\n');
+                }
+                else if (d < 0)
+                {
+                    ssb << CHAR_NEUB << string(-d, '\n') << CHAR_ENDB;
+                    lsb << string(-d, '\n');
+                }
+
+                /*
+                removeallexcept(diffl, CHAR_ADD, CHAR_END, '\n'); // adds faux modifiers to notify it's a fake line
+                removeallexcept(diffr, CHAR_REM, CHAR_END, '\n');
+
+                int da = ea - sa, db = eb - sb; // delta (number of lines)
+                if (da == db) // same number of lines
+                {
+                    ssa << CHAR_REMB << diffl << CHAR_ENDB;
+                    ssb << CHAR_ADDB << diffr << CHAR_ENDB;
+                    for (int i = sa; i < ea; ++i) lsa << i+1 << '\n';
+                    for (int i = sb; i < eb; ++i) lsb << i+1 << '\n';
+                }
+                else if (da > db) // full LEFT
+                {
+                    ssa << CHAR_REMB << diffl << CHAR_ENDB;
+                    for (int i = sa; i < ea; ++i) lsa << i+1 << '\n';
+
+                    // split
+                    ssb << CHAR_ADDB << diffr << CHAR_ENDB;
+                    for (int i = sb; i < eb; ++i) lsb << i+1 << '\n'; // add more
+                    lsb << string(da - db, '\n');
+                }
+                else // (da < db) // full RIGHT
+                {
+                    ssb << CHAR_ADDB << diffr << CHAR_ENDB;
+                    for (int i = sb; i < eb; ++i) lsb << i+1 << '\n';
+
+                    ssa << CHAR_REMB << diffl << CHAR_ENDB;
+                    for (int i = sa; i < ea; ++i) lsa << i+1 << '\n'; // add more
+                    lsa << string(db-da, '\n');
+                }
+                */
+
+                //ssa << CHAR_REMB << diffl << CHAR_ENDB;
+                //ssb << CHAR_ADDB << diffr << CHAR_ENDB;
+                //int nl = max(ea - sa, eb - sb);
+                //lsa << string(nl, '\n');
+                //lsb << string(nl, '\n');
             }
         }
     }
-
     // TODO: run final segment
+    if (ia < A.size())
+    {
+
+    }
+    else if (ib < B.size())
+    {
+
+    }
+
 
     stra = ssa.str();
     strb = ssb.str();
@@ -743,12 +806,14 @@ int main(int argc, char** argv)
 
     string resulthtml;
 
-    //string file1, file2;
-    //readfile(filepath1, file1);
-    //readfile(filepath2, file2);
-    //out << "f1.size=" << file1.size() << " f2.size=" << file2.size() << endl;
-    //writefile("x:/Vs/Differ/output/differ_file1.txt", file1);
-    //writefile("x:/Vs/Differ/output/differ_file2.txt", file2);
+    // save to file
+    {
+        string file1, file2;
+        readfile(filepath1, file1);
+        readfile(filepath2, file2);
+        writefile("x:/Vs/Differ/output/lastfile_1.txt", file1);
+        writefile("x:/Vs/Differ/output/lastfile_2.txt", file2);
+    }
 
     if (diffmethod == DIFFMETHOD_LCS)
     {
