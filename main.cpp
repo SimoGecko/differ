@@ -27,26 +27,28 @@ using namespace std;
 #define DIFFMETHOD_PATIENCE 2
 
 // members
-int viewmode = VIEWMODE_UNIFIED;
+int viewmode = VIEWMODE_SPLIT;
 //int diffmode = DIFFMODE_CHARACTER;
-int diffmethod = DIFFMETHOD_LCS;
+int diffmethod = DIFFMETHOD_PATIENCE;
 bool ignorecase = false;
 bool ignorewhitespace = false;
-bool collapselines = false;
+bool collapselines = true;
 int contextsize = 3;
 
 const char* filepath1 = nullptr;
 const char* filepath2 = nullptr;
 
 // repurposing unused ascii characters for special meaning
-#define CHAR_ADD '\1' // start of heading
-#define CHAR_REM '\2' // start of text
-#define CHAR_END '\3' // end of text
+#define CHAR_ADD '\1' // SOH (start of heading)
+#define CHAR_REM '\2' // STX (start of text)
+#define CHAR_END '\3' // ETX (end of text)
 
-#define CHAR_ADDB '\4' // end of transmission
-#define CHAR_REMB '\5' // enquiry
-#define CHAR_ENDB '\6' // ack
-#define CHAR_NEUB '\14' // shift out
+#define CHAR_ADDB '\4' // EOT (end of transmission)
+#define CHAR_REMB '\5' // ENQ (enquiry)
+#define CHAR_ENDB '\6' // ACK (acknowledge)
+#define CHAR_NEUB '\14' // SO (shift out)
+
+#define CHAR_FAUX '\15' // SI (shift in)
 
 using uint = unsigned int;
 using lint = long long int;
@@ -230,7 +232,8 @@ void removeall(string& str, char from, char to)
     }
 }
 
-void removeallexcept(string& str, char from, char to, char ex) // faux
+// remove all occurrences of characters [from..to] while keeping the ex in range and converting them to faux
+void removeallreplaceinrange(string& str, char from, char to, char ex, char faux)
 {
     size_t start_pos = 0, end_pos = 0;
     while ((start_pos = str.find(from, start_pos)) != string::npos)
@@ -244,12 +247,14 @@ void removeallexcept(string& str, char from, char to, char ex) // faux
                 if (str[i] == ex) ++count;
             }
             str.erase(start_pos, end_pos - start_pos + 1);
-            //str.insert(start_pos, count, ex);
+
+            //str.insert(start_pos, count, faux);
             //start_pos += count;
+             
             for (int i = 0; i < count; i++)
             {
+                str.insert(start_pos++, 1, CHAR_FAUX);
                 str.insert(start_pos++, 1, ex);
-                str.insert(start_pos++, 1, 'F'); // faux
             }
         }
         else
@@ -356,11 +361,11 @@ string convert2html_lcs(string& s)
     return "";
 }
 
+enum class dtype { none, same, rem, add, diff };
 struct diffline
 {
-    enum class type { same, rem, add, diff };
 
-    type t;
+    dtype type;
     int liL, liR;
     string value, valueL, valueR;
     int numRem, numAdd;
@@ -368,85 +373,113 @@ struct diffline
 
     static diffline same(int liL, int liR, string value)
     {
-        return diffline(type::same, liL, liR, value, "", "", 0, 0, INT_MAX);
+        return diffline(dtype::same, liL, liR, value, "", "", 0, 0, INT_MAX);
     }
     static diffline rem(int liL, string value)
     {
-        return diffline(type::rem, liL, -1, value, "", "", 1, 0, INT_MAX);
+        return diffline(dtype::rem, liL, -1, value, "", "", 1, 0, INT_MAX);
     }
     static diffline add(int liR, string value)
     {
-        return diffline(type::add, -1, liR, value, "", "", 0, 1, INT_MAX);
+        return diffline(dtype::add, -1, liR, value, "", "", 0, 1, INT_MAX);
     }
     static diffline diff(int liL, int liR, string value, string valueL, string valueR, int numRem,
         int numAdd)
     {
-        return diffline(type::diff, liL, liR, value, valueL, valueR, numRem, numAdd, INT_MAX);
+        return diffline(dtype::diff, liL, liR, value, valueL, valueR, numRem, numAdd, INT_MAX);
     }
-    diffline(type _t, int _liL, int _liR, string _value, string _valueL, string _valueR,
+    diffline(dtype _type, int _liL, int _liR, string _value, string _valueL, string _valueR,
         int _numRem, int _numAdd, int _dist)
-        : t(_t), liL(_liL), liR(_liR), value(_value), valueL(_valueL), valueR(_valueR)
+        : type(_type), liL(_liL), liR(_liR), value(_value), valueL(_valueL), valueR(_valueR)
         , numRem(_numRem), numAdd(_numAdd), dist(_dist)
     {
     }
 };
 
+enum bg {cle, neu, add, rem};
 
 string convert2html_patience(const vector<diffline>& D)
 {
     // add here all the things
-
-
     if (viewmode == VIEWMODE_SPLIT)
     {
         stringstream ssl, ssr, sll, slr;
+
+        bg bg1 = cle, bg2 = cle;
+        auto boundary = [](bg& prev, bg curr, stringstream& sss)
+        {
+            if (prev != curr)
+            {
+                if (prev != cle) sss << CHAR_ENDB;
+                prev = curr;
+                if      (curr == neu) sss << CHAR_NEUB;
+                else if (curr == add ) sss << CHAR_ADDB;
+                else if (curr == rem ) sss << CHAR_REMB;
+            }
+        };
+
         bool skipped = true;
         for (const diffline& d : D)
         {
-            switch (d.t)
+            // check skipped
+            if (collapselines && d.dist > contextsize) // skip
             {
-            case diffline::type::same:
-            {
-                if (collapselines && d.dist > contextsize) // skip
+                if (!skipped)
                 {
-                    if (!skipped)
-                    {
-                        skipped = true;
-                        // add border
-                        string spacing(5, '\n');
-                        ssl << spacing;
-                        ssr << spacing;
-                        sll << spacing;
-                        slr << spacing;
-                    }
-                    continue;
+                    skipped = true;
+                    // add border
+                    string spacing(5, '\n');
+                    ssl << spacing;
+                    ssr << spacing;
+                    sll << spacing;
+                    slr << spacing;
                 }
-                skipped = false;
+                continue;
+            }
+            skipped = false;
+
+            // check for backgrounds
+
+
+            switch (d.type)
+            {
+            case dtype::same:
+            {
+                boundary(bg1, cle, ssl);
+                boundary(bg2, cle, ssr);
                 ssl << d.value << '\n';
                 ssr << d.value << '\n';
             }
             break;
-            case diffline::type::rem: // TODO: add delimeters only if different from previous
+            case dtype::rem:
             {
-                ssl << CHAR_REMB << d.value << '\n' << CHAR_ENDB;
-                ssr << CHAR_NEUB << '\n' << CHAR_ENDB;
+                boundary(bg1, rem, ssl);
+                boundary(bg2, neu, ssr);
+                ssl << d.value << '\n';
+                ssr << '\n';
             }
             break;
-            case diffline::type::add:
+            case dtype::add:
             {
-                ssl << CHAR_NEUB << '\n' << CHAR_ENDB;
-                ssr << CHAR_ADDB << d.value << '\n' << CHAR_ENDB;
+                boundary(bg1, neu, ssl);
+                boundary(bg2, add, ssr);
+                ssl << '\n';
+                ssr << d.value << '\n';
             }
             break;
-            case diffline::type::diff:
+            case dtype::diff:
             {
-                ssl << CHAR_REMB << d.valueL << '\n' << CHAR_ENDB;
-                ssr << CHAR_ADDB << d.valueR << '\n' << CHAR_ENDB;
+                boundary(bg1, d.liL>-1? rem : neu, ssl);
+                boundary(bg2, d.liR>-1? add : neu, ssr);
+                ssl << d.valueL << '\n';
+                ssr << d.valueR << '\n';
             }
             break;
             }
-            if (d.liL > -1) sll << d.liL + 1; sll << '\n';
-            if (d.liR > -1) slr << d.liR + 1; slr << '\n';
+            if (d.liL > -1) sll << d.liL + 1;
+            if (d.liR > -1) slr << d.liR + 1;
+            sll << '\n';
+            slr << '\n';
         }
 
         string sl = ssl.str();
@@ -458,6 +491,8 @@ string convert2html_patience(const vector<diffline>& D)
         htmlifly(sr);
         converttags(sl);
         converttags(sr);
+        replaceall(ll, '\n', "<br>");
+        replaceall(lr, '\n', "<br>");
 
         string html;
         readfile("x:/Vs/Differ/template_split.html", html);
@@ -466,6 +501,74 @@ string convert2html_patience(const vector<diffline>& D)
         replaceone(html, "__CODE_R__", sr);
         replaceone(html, "__CODE_L__", sl);
         return html;
+    }
+    else if (viewmode == VIEWMODE_UNIFIED)
+    {
+        /*
+        stringstream ss, sll, slr;
+        bool skipped = true;
+        for (const diffline& d : D)
+        {
+            // check skipped
+            if (collapselines && d.dist > contextsize) // skip
+            {
+                if (!skipped)
+                {
+                    skipped = true;
+                    // add border
+                    string spacing(5, '\n');
+                    ss << spacing;
+                    sll << spacing;
+                    slr << spacing;
+                }
+                continue;
+            }
+            skipped = false;
+
+            // check for backgrounds
+
+            switch (d.t)
+            {
+            case dtype::same:
+            {
+                ss << d.value << '\n';
+            }
+            break;
+            case dtype::rem: // TODO: add delimeters only if different from previous
+            {
+                ss << CHAR_REMB << d.value << '\n' << CHAR_ENDB;
+            }
+            break;
+            case dtype::add:
+            {
+                ss << CHAR_ADDB << d.value << '\n' << CHAR_ENDB;
+            }
+            break;
+            case dtype::diff:
+            {
+                ss << CHAR_REMB << d.valueL << '\n' << CHAR_ENDB;
+                ss << CHAR_ADDB << d.valueR << '\n' << CHAR_ENDB;
+            }
+            break;
+            }
+            if (d.liL > -1) sll << d.liL + 1; sll << '\n';
+            if (d.liR > -1) slr << d.liR + 1; slr << '\n';
+        }
+
+        string s = ss.str();
+        string ll = sll.str();
+        string lr = slr.str();
+
+        htmlifly(s);
+        converttags(s);
+
+        string html;
+        readfile("x:/Vs/Differ/template_unified.html", html);
+        replaceone(html, "__LINE_R__", "_"); // in reverse order for speed
+        replaceone(html, "__LINE_L__", "_");
+        replaceone(html, "__CODE__", s);
+        return html;
+        */
     }
     return "";
 }
@@ -516,7 +619,7 @@ struct linedata
         : /*li(_li),*/ value(_value), hash(_hash), cli(_cli)
     { }
 };
-void readlinedata(vector<linedata>& ans, const char* filepath) // TODO: this misses the last line?
+void readlinedata(vector<linedata>& ans, const char* filepath)
 {
     ans.clear();
     std::ifstream file(filepath);
@@ -597,8 +700,9 @@ struct slice
 {
     int ia, ja; // [ia..ja[
     int ib, jb; // [ib..jb[
-    slice(int _ia, int _ja, int _ib, int _jb) : ia(_ia), ja(_ja), ib(_ib), jb(_jb) { }
+    slice(int _ia, int _ja, int _ib, int _jb) : ia(_ia), ja(_ja), ib(_ib), jb(_jb) { }    
 };
+
 
 void findallcorrespondences(vector<linedata>& A, vector<linedata>& B)
 {
@@ -617,10 +721,10 @@ void findallcorrespondences(vector<linedata>& A, vector<linedata>& B)
     while (!Q.empty())
     {
         slice s = Q.front(); Q.pop();
+        //cout << "[" << s.ia << "," << s.ja - 1 << "] [" << s.ib << "," << s.jb - 1 << "]\n";
         int ia = s.ia; int ja = s.ja;
         int ib = s.ib; int jb = s.jb;
 
-        //cout << "[" << ia << "," << ja - 1 << "] [" << ib << "," << jb - 1 << "]\n";
 
         atleastonecorr = false;
 
@@ -703,9 +807,9 @@ void findallcorrespondences(vector<linedata>& A, vector<linedata>& B)
                 // find the intervals
                 if (A[sa].cli+1 < A[ea].cli) // non-empty interval
                 {
-                    int x0 = sa + 1, x1 = ea, x2 = A[sa].cli + 1, x3 = A[ea].cli;
-                    Q.push({ x0, x1, x2, x3 });
-                    //cout << "  +[" << x0 << "," << x1-1 << "] [" << x2 << "," << x3-1 << "]\n";
+                    slice sn{ sa + 1, ea, A[sa].cli + 1, A[ea].cli };
+                    Q.push(sn);
+                    cout << "[" << sn.ia << "," << sn.ja - 1 << "] [" << sn.ib << "," << sn.jb - 1 << "]\n";
                 }
                 sa = ea;
             }
@@ -798,33 +902,50 @@ void patience(vector<diffline>& D, const vector<linedata>& A, const vector<lined
                 int ea = ia, eb = ib;
 
                 // run LCS
-                string diffl = LCS(diffa.str(), diffb.str()); // the lcs contains \n for both lines
-                string diffr = diffl;
+                string diffu = LCS(diffa.str(), diffb.str()); // the lcs contains \n for both lines
+                string diffl = diffu;
+                string diffr = diffu;
 
-                removeall(diffl, CHAR_ADD, CHAR_END);
-                removeall(diffr, CHAR_REM, CHAR_END);
+                //removeall(diffl, CHAR_ADD, CHAR_END);
+                //removeall(diffr, CHAR_REM, CHAR_END);
+                // 
+                // the faux characters signal desire to have a new line
+                removeallreplaceinrange(diffl, CHAR_ADD, CHAR_END, '\n', /*CHAR_FAUX*/'\n'); // TODO: prevent fauxlines to be mid line
+                removeallreplaceinrange(diffr, CHAR_REM, CHAR_END, '\n', /*CHAR_FAUX*/'\n');
 
                 // naive first implementation: split and put all at the beginning
                 int da = ea - sa, db = eb - sb; // delta (number of lines)
-                vector<string> va, vb;
+
+                vector<string> vu, va, vb;
+                splitstring(diffu, vu, '\n');
                 splitstring(diffl, va, '\n');
                 splitstring(diffr, vb, '\n');
-                int i = 0;
-                for (; i < min(da, db); i++)
+                int sa2 = sa, sb2 = sb;
+                int fauxl = 0, fauxr = 0;
+                for (int i=0; i < max(da, db); ++i) // was min
                 {
                     int numRem = -1, numAdd = -1; // TODO
-                    D.push_back(diffline::diff(sa+i, sb+i, "", va[i], vb[i], numRem, numAdd));
+                    string lineL = va[i];
+                    string lineR = vb[i];
+                    int lineiL = -1;
+                    int lineiR = -1;
+                    if (lineL[0] == CHAR_FAUX) lineL = lineL.substr(1); else lineiL = sa2++;
+                    if (lineR[0] == CHAR_FAUX) lineR = lineR.substr(1); else lineiR = sb2++;
+
+                    //D.push_back(diffline::diff(sa+i, sb+i, "", va[i], vb[i], numRem, numAdd));
+                    D.push_back(diffline::diff(lineiL, lineiR, "", lineL, lineR, numRem, numAdd));
                 }
-                while (i < da) // more rem
-                {
-                    D.push_back(diffline::diff(sa + i, -1, "", va[i], "", 1, 0));
-                    ++i;
-                }
-                while (i < db)
-                {
-                    D.push_back(diffline::diff(-1, sb+i, "", "", vb[i], 0, 1));
-                    ++i;
-                }
+                // the next two lines are currently not necessary
+                //while (i < da) // more rem
+                //{
+                //    D.push_back(diffline::diff(sa + i, -1, "", va[i], "", 1, 0));
+                //    ++i;
+                //}
+                //while (i < db)
+                //{
+                //    D.push_back(diffline::diff(-1, sb+i, "", "", vb[i], 0, 1));
+                //    ++i;
+                //}
 
 
                 /*
@@ -903,7 +1024,7 @@ void patience(vector<diffline>& D, const vector<linedata>& A, const vector<lined
 
     auto assigndist = [&D, &dist](int i)
     {
-        if (D[i].t != diffline::type::same) dist = 0;
+        if (D[i].type != dtype::same) dist = 0;
         else if (dist < INT_MAX) ++dist;
         D[i].dist = min(D[i].dist, dist);
     };
