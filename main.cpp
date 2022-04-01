@@ -39,20 +39,87 @@ const char* filepath1 = nullptr;
 const char* filepath2 = nullptr;
 
 // repurposing unused ascii characters for special meaning
-#define CHAR_ADD '\1' // SOH (start of heading)
-#define CHAR_REM '\2' // STX (start of text)
-#define CHAR_END '\3' // ETX (end of text)
+#define CHAR_ADD '\x1' // SOH (start of heading)
+#define CHAR_REM '\x2' // STX (start of text)
+#define CHAR_END '\x3' // ETX (end of text)
 
-#define CHAR_ADDB '\4' // EOT (end of transmission)
-#define CHAR_REMB '\5' // ENQ (enquiry)
-#define CHAR_ENDB '\6' // ACK (acknowledge)
-#define CHAR_NEUB '\14' // SO (shift out)
+#define CHAR_ADDB '\x4' // EOT (end of transmission)
+#define CHAR_REMB '\x5' // ENQ (enquiry)
+#define CHAR_ENDB '\x6' // ACK (acknowledge)
+#define CHAR_NEUB '\xE' // SO (shift out)
 
-#define CHAR_FAUX '\15' // SI (shift in)
+#define CHAR_FAUX '\xF' // SI (shift in)
 
 using uint = unsigned int;
 using lint = long long int;
 using luint = long long unsigned int;
+
+#define NONE 0
+#define UP 1
+#define LEFT 2
+#define DIAG 4
+
+enum class dtype { none, same, rem, add, diff };
+enum bg { cle, neu, add, rem };
+
+struct slice
+{
+    int ia, ja; // [ia..ja[
+    int ib, jb; // [ib..jb[
+    slice(int _ia, int _ja, int _ib, int _jb) : ia(_ia), ja(_ja), ib(_ib), jb(_jb) {}
+};
+
+struct diffline
+{
+    dtype type;
+    int liL, liR;
+    string value, valueL, valueR;
+    int numRem, numAdd;
+    int dist;
+
+    static diffline same(int liL, int liR, string value)
+    {
+        return diffline(dtype::same, liL, liR, value, "", "", 0, 0, INT_MAX);
+    }
+    static diffline rem(int liL, string value)
+    {
+        return diffline(dtype::rem, liL, -1, value, "", "", 1, 0, INT_MAX);
+    }
+    static diffline add(int liR, string value)
+    {
+        return diffline(dtype::add, -1, liR, value, "", "", 0, 1, INT_MAX);
+    }
+    static diffline diff(int liL, int liR, string value, string valueL, string valueR, int numRem,
+        int numAdd)
+    {
+        return diffline(dtype::diff, liL, liR, value, valueL, valueR, numRem, numAdd, INT_MAX);
+    }
+    diffline(dtype _type, int _liL, int _liR, string _value, string _valueL, string _valueR,
+        int _numRem, int _numAdd, int _dist)
+        : type(_type), liL(_liL), liR(_liR), value(_value), valueL(_valueL), valueR(_valueR)
+        , numRem(_numRem), numAdd(_numAdd), dist(_dist)
+    {
+    }
+};
+
+struct corrdata // correspondencedata
+{
+    int countA, countB;
+    int liA, liB; // first occurrence only
+    corrdata() : countA(0), countB(0), liA(-1), liB(-1) {}
+};
+
+struct linedata
+{
+    //int li; // line index
+    string value;
+    unsigned int hash;
+    int cli; // corresponding line index
+    linedata(/*int _li, */const string& _value, uint _hash, int _cli)
+        : /*li(_li),*/ value(_value), hash(_hash), cli(_cli)
+    {
+    }
+};
 
 void readparams(int argc, char** argv)
 {
@@ -105,11 +172,6 @@ void writefile(const char* filepath, const string& str)
         outfile.close();
     }
 }
-
-#define NONE 0
-#define UP 1
-#define LEFT 2
-#define DIAG 4
 
 string LCS(const string& A, const string& B) // naive but optimal first implementation
 {
@@ -216,6 +278,13 @@ void replaceone(string& str, const string& from, const string& to)
     }
 }
 
+int removeall(string& s, char c) // returns the number or removals
+{
+    size_t size = s.size();
+    s.erase(remove(s.begin(), s.end(), c), s.end());
+    return size - s.size();
+}
+
 void removeall(string& str, char from, char to)
 {
     size_t start_pos = 0, end_pos = 0;
@@ -232,9 +301,9 @@ void removeall(string& str, char from, char to)
     }
 }
 
-// remove all occurrences of characters [from..to] while keeping the ex in range and converting them to faux
 void removeallreplaceinrange(string& str, char from, char to, char ex, char faux)
 {
+    // remove all occurrences of characters [from..to] while keeping the ex in range and converting them to faux
     size_t start_pos = 0, end_pos = 0;
     while ((start_pos = str.find(from, start_pos)) != string::npos)
     {
@@ -248,14 +317,14 @@ void removeallreplaceinrange(string& str, char from, char to, char ex, char faux
             }
             str.erase(start_pos, end_pos - start_pos + 1);
 
-            //str.insert(start_pos, count, faux);
-            //start_pos += count;
+            str.insert(start_pos, count, faux);
+            start_pos += count;
              
-            for (int i = 0; i < count; i++)
-            {
-                str.insert(start_pos++, 1, CHAR_FAUX);
-                str.insert(start_pos++, 1, ex);
-            }
+            //for (int i = 0; i < count; i++)
+            //{
+            //    str.insert(start_pos++, 1, CHAR_FAUX);
+            //    str.insert(start_pos++, 1, ex);
+            //}
         }
         else
         {
@@ -264,7 +333,14 @@ void removeallreplaceinrange(string& str, char from, char to, char ex, char faux
     }
 }
 
-void htmlifly(string& s) // TODO: single pass
+int countatbeginning(const string& s, char c)
+{
+    int i = 0;
+    while (i < s.size() && s[i] == c)++i;
+    return i;
+}
+
+void htmlifly(string& s) // PERF: single pass
 {
     replaceall(s, '<', "&lt;");
     replaceall(s, '>', "&gt;");
@@ -274,7 +350,7 @@ void htmlifly(string& s) // TODO: single pass
     //replace(s, " ", "&nbsp;"); // only leading ones
 }
 
-void converttags(string& s) // TODO: single pass
+void converttags(string& s) // PERF: single pass
 {
     replaceall(s, CHAR_ADD, "<span class=ah>"); // add highlight
     replaceall(s, CHAR_REM, "<span class=rh>"); // rem highlight
@@ -360,43 +436,6 @@ string convert2html_lcs(string& s)
 
     return "";
 }
-
-enum class dtype { none, same, rem, add, diff };
-struct diffline
-{
-
-    dtype type;
-    int liL, liR;
-    string value, valueL, valueR;
-    int numRem, numAdd;
-    int dist;
-
-    static diffline same(int liL, int liR, string value)
-    {
-        return diffline(dtype::same, liL, liR, value, "", "", 0, 0, INT_MAX);
-    }
-    static diffline rem(int liL, string value)
-    {
-        return diffline(dtype::rem, liL, -1, value, "", "", 1, 0, INT_MAX);
-    }
-    static diffline add(int liR, string value)
-    {
-        return diffline(dtype::add, -1, liR, value, "", "", 0, 1, INT_MAX);
-    }
-    static diffline diff(int liL, int liR, string value, string valueL, string valueR, int numRem,
-        int numAdd)
-    {
-        return diffline(dtype::diff, liL, liR, value, valueL, valueR, numRem, numAdd, INT_MAX);
-    }
-    diffline(dtype _type, int _liL, int _liR, string _value, string _valueL, string _valueR,
-        int _numRem, int _numAdd, int _dist)
-        : type(_type), liL(_liL), liR(_liR), value(_value), valueL(_valueL), valueR(_valueR)
-        , numRem(_numRem), numAdd(_numAdd), dist(_dist)
-    {
-    }
-};
-
-enum bg {cle, neu, add, rem};
 
 string convert2html_patience(const vector<diffline>& D)
 {
@@ -587,7 +626,7 @@ uint computehash(const string& s)
 
     bool isspace=false, wasspace=false, isuppercase=false;
 
-    for (char c : s) // todo: move checks outside for better performance, or use multiple functions
+    for (char c : s) // PERF: move checks outside for better performance, or use multiple functions
     {
         if (ignorewhitespace)
         {
@@ -609,16 +648,7 @@ uint computehash(const string& s)
     return (uint)hash_value;
 }
 
-struct linedata
-{
-    //int li; // line index
-    string value;
-    unsigned int hash;
-    int cli; // corresponding line index
-    linedata(/*int _li, */const string& _value, uint _hash, int _cli)
-        : /*li(_li),*/ value(_value), hash(_hash), cli(_cli)
-    { }
-};
+
 void readlinedata(vector<linedata>& ans, const char* filepath)
 {
     ans.clear();
@@ -627,7 +657,7 @@ void readlinedata(vector<linedata>& ans, const char* filepath)
     //int ln = 0;
     while (std::getline(file, line))
     {
-        // TODO: both at the same time
+        // PERF: both at the same time
         //unsigned int hash = gethash(line);
         ans.emplace_back(/*ln,*/ line, /*hash*/ 0u, -1);
         //++ln;
@@ -648,13 +678,6 @@ void hashlinedata(vector<linedata>& lds)
     }
 }
 
-struct corrdata // correspondencedata
-{
-    int countA, countB;
-    int liA, liB; // first occurrence only
-    corrdata() : countA(0), countB(0), liA(-1), liB(-1) {}
-};
-
 vector<int> LIS(const vector<int>& A) // (we don't have duplicates)
 {
 	if (A.size() < 2) return A;
@@ -664,7 +687,7 @@ vector<int> LIS(const vector<int>& A) // (we don't have duplicates)
 	for (int i = 0; i < (int)A.size(); ++i)
 	{
 		// find leftmost stack index whose uppermost value is greater than the value
-		// TODO: binsearch
+		// PERF: binsearch
 		int s = -1;
 		for (int j = 0; j < (int)S.size(); ++j)
 		{
@@ -696,14 +719,6 @@ vector<int> LIS(const vector<int>& A) // (we don't have duplicates)
 	return ans;
 }
 
-struct slice
-{
-    int ia, ja; // [ia..ja[
-    int ib, jb; // [ib..jb[
-    slice(int _ia, int _ja, int _ib, int _jb) : ia(_ia), ja(_ja), ib(_ib), jb(_jb) { }    
-};
-
-
 void findallcorrespondences(vector<linedata>& A, vector<linedata>& B)
 {
     bool atleastonecorr = false;
@@ -721,7 +736,7 @@ void findallcorrespondences(vector<linedata>& A, vector<linedata>& B)
     while (!Q.empty())
     {
         slice s = Q.front(); Q.pop();
-        //cout << "[" << s.ia << "," << s.ja - 1 << "] [" << s.ib << "," << s.jb - 1 << "]\n";
+        cout << "slice: [" << s.ia << "," << s.ja - 1 << "] [" << s.ib << "," << s.jb - 1 << "]\n";
         int ia = s.ia; int ja = s.ja;
         int ib = s.ib; int jb = s.jb;
 
@@ -731,7 +746,7 @@ void findallcorrespondences(vector<linedata>& A, vector<linedata>& B)
         if (ia >= ja || ib >= jb) continue; // no lines to parse
 
         // match up the same lines at the beginning
-        while (ia < ja && ib < jb && A[ia].hash == B[ib].hash)
+        while (ia < ja && ib < jb && A[ia].hash == B[ib].hash) // CRASHES: invalid indices
         {
             addcorr(ia, ib);
             ++ia; ++ib;
@@ -763,7 +778,7 @@ void findallcorrespondences(vector<linedata>& A, vector<linedata>& B)
             if (c.countB == 1) c.liB = b;
         }
 
-        // TODO: only use vC
+        // PERF: only use vC
         map<int, int> Mba; // map liB->liA
         vector<pair<int, int>> vC; // possible correspondences
         for (const auto& p : M)
@@ -793,8 +808,8 @@ void findallcorrespondences(vector<linedata>& A, vector<linedata>& B)
         if (atleastonecorr) // something changed. prepare subblocks
         {
             // find blocks to iterate over again, call recursively
-            // TODO: additional checks for not going out of bounds
-            int sa = ia -1; // TODO: bounds
+            // TODO: additional checks for not going out of bounds <==== this cause an out of bounds crash
+            int sa = ia -1;
             while (sa < ja)
             {
                 // find last matched (before gap)
@@ -809,14 +824,17 @@ void findallcorrespondences(vector<linedata>& A, vector<linedata>& B)
                 {
                     slice sn{ sa + 1, ea, A[sa].cli + 1, A[ea].cli };
                     Q.push(sn);
-                    cout << "[" << sn.ia << "," << sn.ja - 1 << "] [" << sn.ib << "," << sn.jb - 1 << "]\n";
+                    if (sn.ja >= A.size())
+                    {
+                        int x = 0;
+                    }
+                    cout << "add: [" << sn.ia << "," << sn.ja - 1 << "] [" << sn.ib << "," << sn.jb - 1 << "]\n";
                 }
                 sa = ea;
             }
         }
     }
 }
-
 
 void splitstring(const string& s, vector<string>& a, char delimiter)
 {
@@ -886,7 +904,6 @@ void patience(vector<diffline>& D, const vector<linedata>& A, const vector<lined
             }
             else // MIX
             {
-                // TODO: appropriate background
                 stringstream diffa, diffb;
                 int sa = ia, sb = ib;
                 while (ia < A.size() && A[ia].cli == -1)
@@ -910,30 +927,54 @@ void patience(vector<diffline>& D, const vector<linedata>& A, const vector<lined
                 //removeall(diffr, CHAR_REM, CHAR_END);
                 // 
                 // the faux characters signal desire to have a new line
-                removeallreplaceinrange(diffl, CHAR_ADD, CHAR_END, '\n', /*CHAR_FAUX*/'\n'); // TODO: prevent fauxlines to be mid line
-                removeallreplaceinrange(diffr, CHAR_REM, CHAR_END, '\n', /*CHAR_FAUX*/'\n');
+                removeallreplaceinrange(diffl, CHAR_ADD, CHAR_END, '\n', CHAR_FAUX);
+                removeallreplaceinrange(diffr, CHAR_REM, CHAR_END, '\n', CHAR_FAUX);
 
                 // naive first implementation: split and put all at the beginning
                 int da = ea - sa, db = eb - sb; // delta (number of lines)
 
+
+                // TODO: there are still some issues to iron out here
                 vector<string> vu, va, vb;
                 splitstring(diffu, vu, '\n');
                 splitstring(diffl, va, '\n');
                 splitstring(diffr, vb, '\n');
-                int sa2 = sa, sb2 = sb;
-                int fauxl = 0, fauxr = 0;
+                int fauxl = countatbeginning(va[0], CHAR_FAUX);
+                int fauxr = countatbeginning(vb[0], CHAR_FAUX);
+                if (fauxl > 0) va[0] = va[0].substr(fauxl);
+                if (fauxr > 0) vb[0] = vb[0].substr(fauxr);
+                int xxL = 0, xxR = 0;
                 for (int i=0; i < max(da, db); ++i) // was min
                 {
-                    int numRem = -1, numAdd = -1; // TODO
-                    string lineL = va[i];
-                    string lineR = vb[i];
+                    int numRem = -1, numAdd = -1; // TODO: compute
+
+                    string lineL = "";
+                    string lineR = "";
                     int lineiL = -1;
                     int lineiR = -1;
-                    if (lineL[0] == CHAR_FAUX) lineL = lineL.substr(1); else lineiL = sa2++;
-                    if (lineR[0] == CHAR_FAUX) lineR = lineR.substr(1); else lineiR = sb2++;
+
+                    if (fauxl == 0) // read next
+                    {
+                        lineL = va[xxL];
+                        lineiL = sa+xxL;
+                        ++xxL;
+                        fauxl = removeall(lineL, CHAR_FAUX);
+                    }
+                    else --fauxl;
+                    if (fauxr == 0)
+                    {
+                        lineR = vb[xxR];
+                        lineiR = sb+xxR;
+                        ++xxR;
+                        fauxr = removeall(lineR, CHAR_FAUX);
+                    }
+                    else --fauxr;
+                    //if (lineL[0] == CHAR_FAUX) lineL = lineL.substr(1); else lineiL = sa2++;
+                    //if (lineR[0] == CHAR_FAUX) lineR = lineR.substr(1); else lineiR = sb2++;
 
                     //D.push_back(diffline::diff(sa+i, sb+i, "", va[i], vb[i], numRem, numAdd));
                     D.push_back(diffline::diff(lineiL, lineiR, "", lineL, lineR, numRem, numAdd));
+                    //printf("(%d,%d) '%s' '%s'", lineiL, lineiR, lineL, lineR);
                 }
                 // the next two lines are currently not necessary
                 //while (i < da) // more rem
@@ -1040,21 +1081,6 @@ void patience(vector<diffline>& D, const vector<linedata>& A, const vector<lined
     //strlb = lsb.str();
 }
 
-auto starttime = chrono::high_resolution_clock::now();
-
-void TIMER_START()
-{
-    starttime = chrono::high_resolution_clock::now();
-}
-
-void TIMER_END(const string& msg)
-{
-    auto endtime = chrono::high_resolution_clock::now();
-    chrono::duration<double, milli>float_ms = endtime - starttime;
-    cout << msg << " in " << float_ms.count() << " ms" << endl;
-    starttime = endtime;
-}
-
 int main(int argc, char** argv)
 {
 	cout << "Differ - (c) 2022 Simone Guggiari" << endl << endl;
@@ -1065,6 +1091,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
+
     // test LIS
     //vector<int> cards({ 9, 4, 6, 12, 8, 7, 1, 5, 10, 11, 3, 2, 13 });
     //vector<int> ans = LIS(cards); // LIS(cards) = 4 6 7 10 11 13
@@ -1072,12 +1099,19 @@ int main(int argc, char** argv)
     readparams(argc, argv);
     //for (int i = 0; i < argc; ++i) cout << "argv[" << i << "]=" << argv[i] << "\n";
     
-    if (filepath1 == nullptr || filepath2 == nullptr) // TODO: Check the files exist
+    if (filepath1 == nullptr || filepath2 == nullptr) // TODO: check the files exist, can be opened
     {
         return 1;
     }
 
-    TIMER_START();
+    auto starttime = chrono::high_resolution_clock::now();
+    auto TIMER_END = [&starttime](const string& msg)
+    {
+        auto endtime = chrono::high_resolution_clock::now();
+        chrono::duration<double, milli>float_ms = endtime - starttime;
+        cout << msg << " in " << float_ms.count() << " ms" << endl;
+        starttime = endtime;
+    };
 
     string resulthtml;
 
@@ -1086,8 +1120,8 @@ int main(int argc, char** argv)
         string file1, file2;
         readfile(filepath1, file1);
         readfile(filepath2, file2);
-        writefile("x:/Vs/Differ/output/lastfile_1.txt", file1);
-        writefile("x:/Vs/Differ/output/lastfile_2.txt", file2);
+        writefile("x:/Vs/Differ/output/lastfile1.txt", file1);
+        writefile("x:/Vs/Differ/output/lastfile2.txt", file2);
     }
 
     if (diffmethod == DIFFMETHOD_LCS)
