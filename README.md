@@ -31,6 +31,13 @@ You can modify the look of the output by modifying template_split.html or templa
   - provide option to tradeoff between number of edits vs total lengh of edits
 
 
+### bugs:
+  - last line of diff doesn't show grey background (remove additional new lines) - (happens only left-side?)
+  - related to above, some mismatch in line numbers in diff
+  - (ignore spaces in hash computation to avoid opening brackets to match up incorrectly) - parameter
+  - even if the hashes match up, store both L/R copies in the structure since spaces might be different but ignored
+  - support non-ascii strings (and sanitize the input with non-printable characters I use)
+
 
 | label          | light   | dark    | old     |
 |----------------|---------|---------|---------|
