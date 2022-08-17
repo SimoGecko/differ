@@ -38,7 +38,7 @@ enum class dtype      { none, same, rem, add, diff };
 enum class bg         { clear, neut, add, rem };
 enum class viewmode   { split, unified };
 enum class diffmode   { character, word };
-enum class diffmethod { lcs, patience };
+enum class diffmethod { lcs, patience, matchlines };
 enum class dir        { none, up, left, diag };
 
 // members
@@ -51,6 +51,8 @@ bool collapselines = true;
 int contextsize = 3;
 bool saveinputs = false;
 const char* OUTPUTPATH = "c:\\dev\\differ\\"; // "%userprofile%\\AppData\\Local\\Temp\\";
+bool converttabstospaces = false;
+int spacesfortabscount = 4;
 
 const char* filepath1 = nullptr;
 const char* filepath2 = nullptr;
@@ -111,7 +113,7 @@ void readparams(int argc, char** argv)
     filepath1 = argv[1];
     filepath2 = argv[2];
 
-	for (int i = 3; i < argc; i++)
+    for (int i = 3; i < argc; i++)
     {
         if      (_strcmpi(argv[i], "unifiedview")      == 0) m_viewmode = viewmode::unified;
         else if (_strcmpi(argv[i], "splitview")        == 0) m_viewmode = viewmode::split;
@@ -119,9 +121,11 @@ void readparams(int argc, char** argv)
         else if (_strcmpi(argv[i], "ignorecase")       == 0) ignorecase = true;
         else if (_strcmpi(argv[i], "lcs")              == 0) m_diffmethod = diffmethod::lcs;
         else if (_strcmpi(argv[i], "patience")         == 0) m_diffmethod = diffmethod::patience;
+        else if (_strcmpi(argv[i], "matchlines")       == 0) m_diffmethod = diffmethod::matchlines;
         else if (_strcmpi(argv[i], "collapselines")    == 0) collapselines = true;
         else if (_strcmpi(argv[i], "expandelines")     == 0) collapselines = false;
         else if (_strcmpi(argv[i], "saveinputs")       == 0) saveinputs = true;
+        else if (_strcmpi(argv[i], "tabstospaces")     == 0) converttabstospaces = true;
         else if (_strcmpi(argv[i], "outputpath")       == 0 && (i + 1 < argc)) OUTPUTPATH = argv[++i];
         else if (_strcmpi(argv[i], "contextsize")      == 0 && (i + 1 < argc))
         {
@@ -160,7 +164,7 @@ void writefile(const char* filepath, const string& str)
     }
 }
 
-int LCS(string & O, const string& A, const string& B) // naive but optimal first implementation
+int LCS(string& O, const string& A, const string& B) // naive but optimal first implementation
 {
     int I = A.size();
     int J = B.size();
@@ -211,7 +215,7 @@ int LCS(string & O, const string& A, const string& B) // naive but optimal first
         }
 
         adddelimiter(mode, prevmode);
-		if      (mode == dir::up  )     ss << A[--i];
+        if      (mode == dir::up  )     ss << A[--i];
         else if (mode == dir::left)     ss << B[--j];
         else  /*(mode == dir::diag)*/ { ss << A[--i]; --j; }
     }
@@ -679,45 +683,84 @@ void hashlinedata(vector<linedata>& lds)
     }
 }
 
-vector<int> LIS(const vector<int>& A) // (we don't have duplicates)
+vector<int> LIS(const vector<int>& A) // from https://cp-algorithms.com/sequences/longest_increasing_subsequence.html
 {
-	if (A.size() < 2) return A;
+    if (A.size() < 2) return A;
 
-	vector<int> S; // stack top indices
-	vector<int> P(A.size()); // pointers
-	for (int i = 0; i < (int)A.size(); ++i)
-	{
-		// find leftmost stack index whose uppermost value is greater than the value
-		// PERF: binsearch
-		int s = -1;
-		for (int j = 0; j < (int)S.size(); ++j)
-		{
-			if (A[S[j]] > A[i])
-			{
-				s = j; break;
-			}
-		}
-		if (s != -1) // found
-		{
-			P[i] = s > 0 ? S[s - 1] : -1;
-			S[s] = i;
-		}
-		else
-		{
-			P[i] = S.empty() ? -1 : S[S.size() - 1];
-			S.push_back(i);
-		}
-	}
-	// reconstruct
-	vector<int> ans;
-	int j = S[S.size() - 1];
-	while (j != -1)
-	{
-		ans.push_back(A[j]);
-		j = P[j];
-	}
-	reverse(ans.begin(), ans.end());
-	return ans;
+    int N = A.size();
+    vector<int> d(N, 1), p(N, -1);
+    for (int i = 0; i < N; i++)
+    {
+        for (int j = 0; j < i; j++)
+        {
+            if (A[j] < A[i] && d[i] < d[j] + 1)
+            {
+                d[i] = d[j] + 1;
+                p[i] = j;
+            }
+        }
+    }
+
+    int ans = d[0], pos = 0;
+    for (int i = 1; i < N; i++)
+    {
+        if (d[i] > ans)
+        {
+            ans = d[i];
+            pos = i;
+        }
+    }
+
+    vector<int> subseq;
+    while (pos != -1)
+    {
+        subseq.push_back(A[pos]);
+        pos = p[pos];
+    }
+    reverse(subseq.begin(), subseq.end());
+    return subseq;
+}
+
+// TODO: this doesn't work for example for {3,3,3,2} -> fix
+vector<int> LISold(const vector<int>& A) // (we don't have duplicates)
+{
+    if (A.size() < 2) return A;
+
+    vector<int> S; // stack top indices
+    vector<int> P(A.size()); // pointers
+    for (int i = 0; i < (int)A.size(); ++i)
+    {
+        // find leftmost stack index whose uppermost value is greater than the value
+        // PERF: binsearch
+        int s = -1;
+        for (int j = 0; j < (int)S.size(); ++j)
+        {
+            if (A[S[j]] > A[i])
+            {
+                s = j; break;
+            }
+        }
+        if (s != -1) // found
+        {
+            P[i] = s > 0 ? S[s - 1] : -1;
+            S[s] = i;
+        }
+        else
+        {
+            P[i] = S.empty() ? -1 : S[S.size() - 1];
+            S.push_back(i);
+        }
+    }
+    // reconstruct
+    vector<int> ans;
+    int j = S[S.size() - 1];
+    while (j != -1)
+    {
+        ans.push_back(A[j]);
+        j = P[j];
+    }
+    reverse(ans.begin(), ans.end());
+    return ans;
 }
 
 void findallcorrespondences(vector<linedata>& A, vector<linedata>& B)
@@ -970,6 +1013,141 @@ void patience(vector<diffline>& D, const vector<linedata>& A, const vector<lined
     }
 }
 
+string trimleadingwhitespace(const std::string& s)
+{
+    const std::string WHITESPACE = " \n\r\t\f\v";
+    size_t start = s.find_first_not_of(WHITESPACE);
+    return (start == std::string::npos) ? "" : s.substr(start);
+}
+
+int computesimilarity(const string& a, const string& b)
+{
+    //string A = ignorewhitespace ? trimleadingwhitespace(a) : a;
+    //string B = ignorewhitespace ? trimleadingwhitespace(b) : b;
+    string o;
+    LCS(o, a, b);
+    return o.size();
+}
+int thresholdsimilarity(const string& a, const string& b)
+{
+    // at least 30% of the minimum of two strings?
+    return min(a.size(), b.size()) * 0.3; // TODO
+}
+
+void matchlines(vector<diffline>& D, const vector<linedata>& A, const vector<linedata>& B)
+{
+    // NOTES: the first 3 cases are the same as patience. only the mix case first matches lines by using similarty metric and then runs lcs on them
+    
+    // iterate over the lines
+    //   if they have correspondences -> add them to the result
+    //   if not -> run LCS on them
+    
+    int ia = 0, ib = 0;
+    while (ia < A.size() && ib < B.size())
+    {
+        if (A[ia].cli == ib) // correspondence
+        {
+            assert(B[ib].cli == ia && "mismatch in correspondence");
+            D.push_back(diffline::same(ia, ib, A[ia].value, B[ib].value));
+            ++ia; ++ib;
+        }
+        else if (B[ib].cli != -1) // one-sided REM
+        {
+            int sa = ia, ea = B[ib].cli;
+            for (; ia < ea; ++ia)
+            {
+                D.push_back(diffline::rem(ia, A[ia].value));
+            }
+        }
+        else if (A[ia].cli != -1) // one-sided ADD
+        {
+            int sb = ib, eb = A[ia].cli;
+            for (; ib < eb; ++ib)
+            {
+                D.push_back(diffline::add(ib, B[ib].value));
+            }
+        }
+        else // MIX
+        {
+            // find the range of mixed lines
+            int sa = ia, sb = ib;
+            while (ia < A.size() && A[ia].cli == -1) ++ia;
+            while (ib < B.size() && B[ib].cli == -1) ++ib;
+            int ea = ia, eb = ib;
+
+            int na = ea - sa; // num lines
+            int nb = eb - sb;
+
+            // find possible candidates
+            vector<int> C(na);
+            for (int ia=sa; ia<ea; ++ia)
+            {
+                int bestMatch = -1;
+                int maxSimilarity = 0;
+                // find the best candidate for matching line, above some threshold
+                for (int ib = sb; ib < eb; ++ib)
+                {
+                    int similarity = computesimilarity(A[ia].value, B[ib].value);
+                    bool passesThreshold = similarity >= thresholdsimilarity(A[ia].value, B[ib].value);
+                    if (passesThreshold && similarity > maxSimilarity)
+                    {
+                        maxSimilarity = similarity;
+                        bestMatch = ib;
+                    }
+                }
+                C[ia-sa] = bestMatch;
+            }
+            vector<int> lisC = LIS(C); // find the most matches
+
+            // iterate, add lines one by one running diff on those that match
+            int ia = sa, ib = sb, im = 0;
+            int nm = lisC.size();
+            while (ia < ea || ib < eb)
+            {
+                // if im<nm we can assume ia<ea && ib<eb
+                if (im<nm && C[ia-sa] == lisC[im] && C[ia-sa] == ib) // matching line
+                {
+                    int numRem = -1, numAdd = -1; // TODO: compute
+                    D.push_back(diffline::diff(ia, ib, "", A[ia].value, B[ib].value, numRem, numAdd));
+                    ++ia; ++ib; ++im;
+                }
+                else if (im<nm && C[ia-sa] == lisC[im]) // waiting for B
+                {
+                    D.push_back(diffline::add(ib, B[ib].value));
+                    ++ib;
+                }
+                else if (im<nm && C[ia-sa] == ib) // waiting for A
+                {
+                    D.push_back(diffline::rem(ia, A[ia].value));
+                    ++ia;
+                }
+                else // who cares
+                {
+                    if (ia < ea)
+                    {
+                        D.push_back(diffline::rem(ia, A[ia].value));
+                        ++ia;
+                    }
+                    else
+                    {
+                        D.push_back(diffline::add(ib, B[ib].value));
+                        ++ib;
+                    }
+                }
+            }
+        }
+    }
+    // run final segment (necesssary?)
+    while (ia < A.size()) // one-sided REM
+    {
+        //D.push_back(diffline::rem(ia, A[ia].value)); ++ia;
+    }
+    while (ib < B.size()) // one-sided ADD
+    {
+        //D.push_back(diffline::add(ib, B[ib].value)); ++ib;
+    }
+}
+
 void computedistance(vector<diffline>& D)
 {
     // compute distance in double pass
@@ -990,7 +1168,7 @@ void computedistance(vector<diffline>& D)
 
 int main(int argc, char** argv)
 {
-	cout << "Differ - (c) 2022 Simone Guggiari" << endl << endl;
+    cout << "Differ - (c) 2022 Simone Guggiari" << endl << endl;
 
     if (argc < 3)
     {
@@ -1027,8 +1205,8 @@ int main(int argc, char** argv)
         string file1, file2;
         readfile(filepath1, file1);
         readfile(filepath2, file2);
-		string outputfilepath1 = string(OUTPUTPATH) + "output_lastfile1.txt";
-		string outputfilepath2 = string(OUTPUTPATH) + "output_lastfile2.txt";
+        string outputfilepath1 = string(OUTPUTPATH) + "output_lastfile1.txt";
+        string outputfilepath2 = string(OUTPUTPATH) + "output_lastfile2.txt";
 
         writefile(outputfilepath1.c_str(), file1);
         writefile(outputfilepath2.c_str(), file2);
@@ -1050,7 +1228,7 @@ int main(int argc, char** argv)
         string resulthtml = convert2html(diffresult);
         TIMER_END("html");
     }
-    else if (m_diffmethod == diffmethod::patience)
+    else if (m_diffmethod == diffmethod::patience || m_diffmethod == diffmethod::matchlines)
     {
         vector<linedata> A, B;
         readlinedata(A, filepath1);
@@ -1065,7 +1243,14 @@ int main(int argc, char** argv)
         TIMER_END("corr");
 
         vector<diffline> D;
-        patience(D, A, B);
+        if (m_diffmethod == diffmethod::patience)
+        {
+            patience(D, A, B);
+        }
+        else
+        {
+            matchlines(D, A, B);
+        }
         computedistance(D);
         TIMER_END("pati");
 
@@ -1073,14 +1258,14 @@ int main(int argc, char** argv)
         TIMER_END("html");
     }
 
-	string outputfilepath = string(OUTPUTPATH) + "differresult.html";
+    string outputfilepath = string(OUTPUTPATH) + "differresult.html";
     // TODO: resolve the path, make sure it can be written. use a default path if not
-	writefile(outputfilepath.c_str(), resulthtml);
+    writefile(outputfilepath.c_str(), resulthtml);
     TIMER_END("writ");
 
     ShellExecuteA(NULL, "open", outputfilepath.c_str(), NULL, NULL, SW_SHOWNORMAL);
     TIMER_END("open");
 
     //system("PAUSE");
-	return 0;
+    return 0;
 }
