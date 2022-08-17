@@ -1043,12 +1043,8 @@ int thresholdsimilarity(const string& a, const string& b)
 
 void matchlines(vector<diffline>& D, const vector<linedata>& A, const vector<linedata>& B)
 {
-    // NOTES: the first 3 cases are the same as patience. only the mix case first matches lines by using similarty metric and then runs lcs on them
-    
-    // iterate over the lines
-    //   if they have correspondences -> add them to the result
-    //   if not -> run LCS on them
-    
+    // NOTES: the first 3 cases are the same as patience
+    // only the mix case first matches lines by using similarty metric and then runs lcs on them
     int ia = 0, ib = 0;
     while (ia < A.size() && ib < B.size())
     {
@@ -1087,34 +1083,22 @@ void matchlines(vector<diffline>& D, const vector<linedata>& A, const vector<lin
 
             struct want
             {
-                int strenght;
-                int ia;
-                int ib;
+                int strenght, ia, ib;
             };
 
-            // find possible candidates
-            //vector<int> C(nb, -1); // which line wants it
-            //vector<int> S(nb, 0); // with which strength he want is
+            // find possible candidates sorted by strength of match
             vector<want> wants;
             for (int ia=sa; ia<ea; ++ia)
             {
-                //int bestMatch = -1;
-                //int maxSimilarity = 0;
-                // find the best candidate for matching line, above some threshold
                 for (int ib = sb; ib < eb; ++ib)
                 {
                     int similarity = computesimilarity(A[ia].value, B[ib].value);
                     bool passesThreshold = similarity > 0 && similarity >= thresholdsimilarity(A[ia].value, B[ib].value);
-                    if (passesThreshold)// && similarity > S[ib-sb])
+                    if (passesThreshold)
                     {
                         wants.push_back({ similarity, ia, ib });
-                        //C[ib-sb] = ia;
-                        //S[ib-sb] = similarity;
-                        //maxSimilarity = similarity;
-                        //bestMatch = ib;
                     }
                 }
-                //C[ia-sa] = bestMatch;
             }
             sort(wants.begin(), wants.end(), [](const want& wa, const want& wb) { return wa.strenght > wb.strenght; });
             vector<int> ma(na, -1), mb(nb, -1);
@@ -1126,6 +1110,7 @@ void matchlines(vector<diffline>& D, const vector<linedata>& A, const vector<lin
                     mb[w.ib-sb]=w.ia;
                 }
             }
+
             vector<int> Ca(ma); // correspondences a
             Ca.erase(remove(Ca.begin(), Ca.end(), -1), Ca.end());
             vector<int> lisCa = LIS(Ca); // find the most matches
@@ -1141,26 +1126,18 @@ void matchlines(vector<diffline>& D, const vector<linedata>& A, const vector<lin
                 else ma[i] = -1; // set invalid
 			}
 
-
             // iterate, add lines one by one running diff on those that match
-            int ia = sa, ib = sb;//, im = 0;
-            //int nm = lisC.size();
+            int ia = sa, ib = sb;
             while (ia < ea || ib < eb)
             {
-                // if im<nm we can assume ia<ea && ib<eb
-                //if (im<nm && C[ia-sa] == lisC[im] && C[ia-sa] == ib) // matching line
-                //{
-                //    int numRem = -1, numAdd = -1; // TODO: compute
-                //    D.push_back(diffline::diff(ia, ib, "", A[ia].value, B[ib].value, numRem, numAdd));
-                //    ++ia; ++ib; ++im;
-                //}
-                if (ia<ea && ma[ia-sa] == -1) // waiting for A
+                // TODO: add lines at the same time until some point instead of them completely staggered
+                if (ia<ea && ma[ia-sa] == -1)
                 {
                     stringstream ss; ss << CHAR_REM << A[ia].value << CHAR_END;
                     D.push_back(diffline::rem(ia, ss.str()));
                     ++ia;
                 }
-                else if (ib<eb && mb[ib-sb] == -1) // waiting for B
+                else if (ib<eb && mb[ib-sb] == -1)
                 {
                     stringstream ss; ss << CHAR_ADD << B[ib].value << CHAR_END;
                     D.push_back(diffline::add(ib, ss.str()));
@@ -1170,7 +1147,6 @@ void matchlines(vector<diffline>& D, const vector<linedata>& A, const vector<lin
                 {
                     // both non -1, must be matching
 					int numRem = -1, numAdd = -1; // TODO: compute
-                    // TODO: do LCS, don't use raw lines values
                     string o;
                     LCS(o, A[ia].value, B[ib].value);
                     string sl(o), sr(o);
@@ -1182,7 +1158,7 @@ void matchlines(vector<diffline>& D, const vector<linedata>& A, const vector<lin
             }
         }
     }
-    // run final segment (necesssary?)
+    // run final segment (necessary?)
     while (ia < A.size()) // one-sided REM
     {
         //D.push_back(diffline::rem(ia, A[ia].value)); ++ia;
