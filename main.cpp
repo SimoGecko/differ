@@ -50,7 +50,7 @@ bool ignorewhitespace = false;
 bool collapselines = true;
 int contextsize = 3;
 bool saveinputs = false;
-const char* outputpath = "x:/Vs/Differ/diffres.html";
+const char* OUTPUTPATH = "c:\\dev\\differ\\"; // "%userprofile%\\AppData\\Local\\Temp\\";
 
 const char* filepath1 = nullptr;
 const char* filepath2 = nullptr;
@@ -122,7 +122,7 @@ void readparams(int argc, char** argv)
         else if (_strcmpi(argv[i], "collapselines")    == 0) collapselines = true;
         else if (_strcmpi(argv[i], "expandelines")     == 0) collapselines = false;
         else if (_strcmpi(argv[i], "saveinputs")       == 0) saveinputs = true;
-        else if (_strcmpi(argv[i], "outputpath")       == 0 && (i + 1 < argc)) outputpath = argv[++i];
+        else if (_strcmpi(argv[i], "outputpath")       == 0 && (i + 1 < argc)) OUTPUTPATH = argv[++i];
         else if (_strcmpi(argv[i], "contextsize")      == 0 && (i + 1 < argc))
         {
             contextsize = std::stoi(argv[++i]);
@@ -1027,8 +1027,11 @@ int main(int argc, char** argv)
         string file1, file2;
         readfile(filepath1, file1);
         readfile(filepath2, file2);
-        writefile("x:/Vs/Differ/output/lastfile1.txt", file1);
-        writefile("x:/Vs/Differ/output/lastfile2.txt", file2);
+		string outputfilepath1 = string(OUTPUTPATH) + "output_lastfile1.txt";
+		string outputfilepath2 = string(OUTPUTPATH) + "output_lastfile2.txt";
+
+        writefile(outputfilepath1.c_str(), file1);
+        writefile(outputfilepath2.c_str(), file2);
     }
 
     // TODO: move here the reading of file lines
@@ -1070,10 +1073,12 @@ int main(int argc, char** argv)
         TIMER_END("html");
     }
 
-    writefile(outputpath, resulthtml);
+	string outputfilepath = string(OUTPUTPATH) + "differresult.html";
+    // TODO: resolve the path, make sure it can be written. use a default path if not
+	writefile(outputfilepath.c_str(), resulthtml);
     TIMER_END("writ");
 
-    ShellExecuteA(NULL, "open", outputpath, NULL, NULL, SW_SHOWNORMAL);
+    ShellExecuteA(NULL, "open", outputfilepath.c_str(), NULL, NULL, SW_SHOWNORMAL);
     TIMER_END("open");
 
     //system("PAUSE");
