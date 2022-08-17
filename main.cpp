@@ -1025,13 +1025,15 @@ int computesimilarity(const string& a, const string& b)
     //string A = ignorewhitespace ? trimleadingwhitespace(a) : a;
     //string B = ignorewhitespace ? trimleadingwhitespace(b) : b;
     string o;
-    LCS(o, a, b);
-    return o.size();
+    return LCS(o, a, b);
 }
 int thresholdsimilarity(const string& a, const string& b)
 {
     // at least 30% of the minimum of two strings?
-    return min(a.size(), b.size()) * 0.3; // TODO
+    float matchPercent = 0.5f;
+	//int ans = (int)((float)min(a.size(), b.size()) * matchPercent);
+	int ans = (int)(((float)(a.size() + b.size()))/2.f * matchPercent);
+    return ans;
 }
 
 void matchlines(vector<diffline>& D, const vector<linedata>& A, const vector<linedata>& B)
@@ -1078,61 +1080,92 @@ void matchlines(vector<diffline>& D, const vector<linedata>& A, const vector<lin
             int na = ea - sa; // num lines
             int nb = eb - sb;
 
+            struct want
+            {
+                int strenght;
+                int ia;
+                int ib;
+            };
+
             // find possible candidates
-            vector<int> C(na);
+            //vector<int> C(nb, -1); // which line wants it
+            //vector<int> S(nb, 0); // with which strength he want is
+            vector<want> wants;
             for (int ia=sa; ia<ea; ++ia)
             {
-                int bestMatch = -1;
-                int maxSimilarity = 0;
+                //int bestMatch = -1;
+                //int maxSimilarity = 0;
                 // find the best candidate for matching line, above some threshold
                 for (int ib = sb; ib < eb; ++ib)
                 {
                     int similarity = computesimilarity(A[ia].value, B[ib].value);
-                    bool passesThreshold = similarity >= thresholdsimilarity(A[ia].value, B[ib].value);
-                    if (passesThreshold && similarity > maxSimilarity)
+                    bool passesThreshold = similarity > 0 && similarity >= thresholdsimilarity(A[ia].value, B[ib].value);
+                    if (passesThreshold)// && similarity > S[ib-sb])
                     {
-                        maxSimilarity = similarity;
-                        bestMatch = ib;
+                        wants.push_back({ similarity, ia, ib });
+                        //C[ib-sb] = ia;
+                        //S[ib-sb] = similarity;
+                        //maxSimilarity = similarity;
+                        //bestMatch = ib;
                     }
                 }
-                C[ia-sa] = bestMatch;
+                //C[ia-sa] = bestMatch;
             }
+            sort(wants.begin(), wants.end(), [](const want& wa, const want& wb) { return wa.strenght > wb.strenght; });
+            vector<int> ma(na, -1), mb(nb, -1);
+            for (want& w : wants)
+            {
+                if (ma[w.ia-sa] == -1 && mb[w.ib-sb] == -1) // both untaken
+                {
+                    ma[w.ia-sa]=w.ib;
+                    mb[w.ib-sb]=w.ia;
+                }
+            }
+            vector<int> C(ma);
+            C.erase(remove(C.begin(), C.end(), -1), C.end());
             vector<int> lisC = LIS(C); // find the most matches
+            int im = 0;
+            for (int i = 0; i < na; ++i)
+            {
+                if (ma[i] == lisC[im]) ++im;
+                else ma[i] = -1; // set invalid
+            }
+			im = 0;
+			for (int i = 0; i < nb; ++i)
+			{
+				if (mb[i] == lisC[im]) ++im;
+				else mb[i] = -1; // set invalid
+			}
 
             // iterate, add lines one by one running diff on those that match
-            int ia = sa, ib = sb, im = 0;
-            int nm = lisC.size();
+            int ia = sa, ib = sb;//, im = 0;
+            //int nm = lisC.size();
             while (ia < ea || ib < eb)
             {
                 // if im<nm we can assume ia<ea && ib<eb
-                if (im<nm && C[ia-sa] == lisC[im] && C[ia-sa] == ib) // matching line
-                {
-                    int numRem = -1, numAdd = -1; // TODO: compute
-                    D.push_back(diffline::diff(ia, ib, "", A[ia].value, B[ib].value, numRem, numAdd));
-                    ++ia; ++ib; ++im;
-                }
-                else if (im<nm && C[ia-sa] == lisC[im]) // waiting for B
-                {
-                    D.push_back(diffline::add(ib, B[ib].value));
-                    ++ib;
-                }
-                else if (im<nm && C[ia-sa] == ib) // waiting for A
+                //if (im<nm && C[ia-sa] == lisC[im] && C[ia-sa] == ib) // matching line
+                //{
+                //    int numRem = -1, numAdd = -1; // TODO: compute
+                //    D.push_back(diffline::diff(ia, ib, "", A[ia].value, B[ib].value, numRem, numAdd));
+                //    ++ia; ++ib; ++im;
+                //}
+                if (ma[ia-sa] == -1) // waiting for A
                 {
                     D.push_back(diffline::rem(ia, A[ia].value));
                     ++ia;
                 }
-                else // who cares
+                else if (mb[ib-sb] == -1) // waiting for B
                 {
-                    if (ia < ea)
-                    {
-                        D.push_back(diffline::rem(ia, A[ia].value));
-                        ++ia;
-                    }
-                    else
-                    {
-                        D.push_back(diffline::add(ib, B[ib].value));
-                        ++ib;
-                    }
+                    D.push_back(diffline::add(ib, B[ib].value));
+                    ++ib;
+                }
+                else
+                {
+                    // both non -1, must be matching
+					int numRem = -1, numAdd = -1; // TODO: compute
+                    // TODO: do LCS, don't use raw lines values
+					D.push_back(diffline::diff(ia, ib, "", A[ia].value, B[ib].value, numRem, numAdd));
+					++ia; ++ib;
                 }
             }
         }
