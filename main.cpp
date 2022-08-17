@@ -51,7 +51,7 @@ bool collapselines = true;
 int contextsize = 3;
 bool saveinputs = false;
 const char* OUTPUTPATH = "c:\\dev\\differ\\"; // "%userprofile%\\AppData\\Local\\Temp\\";
-bool converttabstospaces = false;
+bool converttabstospaces = true;
 int spacesfortabscount = 4;
 
 const char* filepath1 = nullptr;
@@ -336,6 +336,10 @@ void htmlifly(string& s) // PERF: single pass
     replaceall(s, '\n', "<br>");
     //replaceall(s, "    ", "&emsp;");
     //replaceall(s, "  ", "&ensp;");
+    if (converttabstospaces)
+    {
+        replaceall(s, '\t', "    ");
+    }
     replaceall(s, ' ', "&nbsp;"); // only leading ones
 }
 
@@ -1027,6 +1031,7 @@ int computesimilarity(const string& a, const string& b)
     string o;
     return LCS(o, a, b);
 }
+
 int thresholdsimilarity(const string& a, const string& b)
 {
     // at least 30% of the minimum of two strings?
@@ -1121,21 +1126,21 @@ void matchlines(vector<diffline>& D, const vector<linedata>& A, const vector<lin
                     mb[w.ib-sb]=w.ia;
                 }
             }
-            vector<int> C(ma);
-            C.erase(remove(C.begin(), C.end(), -1), C.end());
-            vector<int> lisC = LIS(C); // find the most matches
+            vector<int> Ca(ma); // correspondences a
+            Ca.erase(remove(Ca.begin(), Ca.end(), -1), Ca.end());
+            vector<int> lisCa = LIS(Ca); // find the most matches
             int im = 0;
+            for (int i = 0; i < nb; ++i) mb[i] = -1; // reset
             for (int i = 0; i < na; ++i)
             {
-                if (ma[i] == lisC[im]) ++im;
-                else ma[i] = -1; // set invalid
-            }
-			im = 0;
-			for (int i = 0; i < nb; ++i)
+                if (im < lisCa.size() && ma[i] == lisCa[im])
 			{
-				if (mb[i] == lisC[im]) ++im;
-				else mb[i] = -1; // set invalid
+                    mb[ma[i]-sb] = sa+i;
+                    ++im;
+                }
+                else ma[i] = -1; // set invalid
 			}
+
 
             // iterate, add lines one by one running diff on those that match
             int ia = sa, ib = sb;//, im = 0;
@@ -1149,14 +1154,16 @@ void matchlines(vector<diffline>& D, const vector<linedata>& A, const vector<lin
                 //    D.push_back(diffline::diff(ia, ib, "", A[ia].value, B[ib].value, numRem, numAdd));
                 //    ++ia; ++ib; ++im;
                 //}
-                if (ma[ia-sa] == -1) // waiting for A
+                if (ia<ea && ma[ia-sa] == -1) // waiting for A
                 {
-                    D.push_back(diffline::rem(ia, A[ia].value));
+                    stringstream ss; ss << CHAR_REM << A[ia].value << CHAR_END;
+                    D.push_back(diffline::rem(ia, ss.str()));
                     ++ia;
                 }
-                else if (mb[ib-sb] == -1) // waiting for B
+                else if (ib<eb && mb[ib-sb] == -1) // waiting for B
                 {
-                    D.push_back(diffline::add(ib, B[ib].value));
+                    stringstream ss; ss << CHAR_ADD << B[ib].value << CHAR_END;
+                    D.push_back(diffline::add(ib, ss.str()));
                     ++ib;
                 }
                 else
@@ -1164,7 +1171,12 @@ void matchlines(vector<diffline>& D, const vector<linedata>& A, const vector<lin
                     // both non -1, must be matching
 					int numRem = -1, numAdd = -1; // TODO: compute
                     // TODO: do LCS, don't use raw lines values
-					D.push_back(diffline::diff(ia, ib, "", A[ia].value, B[ib].value, numRem, numAdd));
+                    string o;
+                    LCS(o, A[ia].value, B[ib].value);
+                    string sl(o), sr(o);
+                    removeall(sl, CHAR_ADD, CHAR_END);
+                    removeall(sr, CHAR_REM, CHAR_END);
+					D.push_back(diffline::diff(ia, ib, o, sl, sr, numRem, numAdd));
 					++ia; ++ib;
                 }
             }
